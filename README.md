@@ -1,68 +1,133 @@
-# Google Sheet JSON API
+# Bucket List API
 
-This project is a simple web app built with Google Apps Script. It reads data from a Google Sheet and provides it as a JSON API.
+This is the backend API for the Bucket List application. It serves data from a Google Sheet as a simple JSON API.
 
-This is useful for quickly creating a simple, free backend for small web projects.
+This API is built with Google Apps Script and uses a Google Sheet as its database, providing a simple, serverless backend solution.
 
-## How it Works
+## Features
 
-- It uses a Google Sheet as a simple database.
-- A Google Apps Script function `doGet(e)` runs when someone visits the app's URL.
-- The script reads all the data from a specific sheet.
-- It converts the data into a JSON format.
-- It returns the JSON data. It can also return JSONP if you add a `callback` parameter to the URL.
+- **Get Bucket List Data**: Fetches all items from the bucket list stored in a Google Sheet.
+- **Data Normalization**: Cleans up and formats the data. For example, it trims text, validates URLs, and sets default values.
+- **Dynamic Age Calculation**: Automatically calculates and normalizes the `target_age` field based on a specific birth date.
+- **JSONP Support**: Includes a `callback` parameter for JSONP requests to work around cross-domain issues if needed.
 
-## Setup
+## Tech Stack
 
-1.  **Clone the project:**
+- **Google Apps Script**: The main platform for running the backend logic.
+- **Google Sheets**: Used as a simple database.
+- **Node.js**: For development tools, testing, and deployment.
+- **Vitest**: A testing framework for running unit tests.
+- **clasp**: The official command-line tool for Google Apps Script, used for deploying the code.
+
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (which includes npm)
+- A Google Account
+
+### Installation
+
+1.  **Clone the repository:**
     ```bash
     git clone https://github.com/your-username/your-repo-name.git
     cd your-repo-name
     ```
 
-2.  **Install tools:**
-    This project uses Node.js for testing and deployment. You need to install the dependencies.
+2.  **Install dependencies:**
     ```bash
     npm install
     ```
 
-3.  **Set up `clasp` (Command Line Apps Script Projects):**
-    `clasp` is the official tool for managing Google Apps Script projects.
-    - If you don't have it, install it: `npm install -g @google/clasp`
-    - Log in to your Google account: `clasp login`
-    - Connect this project to a Google Apps Script project: `clasp create --title "My JSON API"` or `clasp clone <scriptId>` if you have an existing project.
+3.  **Set up `clasp`:**
+    This tool lets you manage your Google Apps Script projects from the command line.
+    ```bash
+    # Install clasp globally if you don't have it
+    npm install -g @google/clasp
 
-4.  **Update the Spreadsheet ID:**
+    # Log in to your Google account
+    clasp login
+    ```
+
+4.  **Create a Google Apps Script project:**
+    You can either create a new project or connect to an existing one.
+    ```bash
+    # Create a new project and link it
+    clasp create --title "Bucket List API"
+    ```
+
+5.  **Set up the Google Sheet:**
     - Create a new Google Sheet.
-    - Put some data in it. The first row should be your headers (like `id`, `name`, `email`).
-    - Get the ID of the sheet from its URL. The URL looks like this: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`.
-    - Open `src/Code.js` and change the `SPREADSHEET_ID` variable to your sheet's ID.
+    - Add headers in the first row. The required headers are: `id`, `title`, `category`, `target_age`, `completed`, `completed_at`, `image_url`, and `note`.
+    - Get the **Spreadsheet ID** from its URL:
+      `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
 
-## Testing
+## Configuration
 
-This project uses `vitest` for testing. The tests make sure the code works correctly without needing to connect to a real Google Sheet.
+The API needs to know which Google Sheet to use as its data source.
 
-To run the tests:
+-   Open the `src/Code.js` file.
+-   Find the `SPREADSHEET_ID` variable and replace its value with your own sheet ID.
+
+## Development
+
+### Running Tests
+
+This project uses Vitest for testing. To run the tests:
 ```bash
 npm test
 ```
-This command will run all tests and show a code coverage report. The goal is to keep 100% coverage.
+This command runs all tests and shows a coverage report.
 
-## Deployment
+### Deployment
 
-To deploy the script to your Google Apps Script project:
+To deploy the API to Google Apps Script:
+```bash
+npm run deploy
+```
+This command first builds the code to make it compatible with Google Apps Script and then pushes it using `clasp`. After deploying, `clasp` will provide you with a URL for your web app.
 
-1.  **Build the code:**
-    The code in `src/Code.js` uses modern JavaScript (ES Modules). Google Apps Script doesn't support this directly. A build step is needed to make it compatible.
-    ```bash
-    npm run build
-    ```
+## API Usage
 
-2.  **Push to Google:**
-    After building, use `clasp` to send your code to Google.
-    ```bash
-    npm run deploy
-    ```
-    This command runs the build and then `clasp push --force`.
+The API provides one main endpoint.
 
-After deploying, you will get a URL for your web app. You can visit that URL to see the JSON data from your sheet.
+- **Endpoint**: The deployment URL from `clasp`.
+- **Method**: `GET`
+- **Description**: Returns all items from the bucket list.
+
+**Example Request:**
+```
+GET https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+```
+
+**Example Response:**
+```json
+[
+  {
+    "id": 1,
+    "target_age": 40,
+    "completed": true,
+    "image_url": "https://example.com/image.jpg",
+    "category": "Travel",
+    "title": "Visit Japan",
+    "note": "Explore Tokyo and Kyoto.",
+    "completed_at": "2023-10-27T10:00:00.000Z"
+  },
+  {
+    "id": 2,
+    "target_age": 50,
+    "completed": false,
+    "image_url": "",
+    "category": "Skill",
+    "title": "Learn to play the guitar",
+    "note": "",
+    "completed_at": null
+  }
+]
+```
+
+## Relationship with the Frontend
+
+This API serves as the backend for the "Bucket List" web application. The frontend, which is in a separate repository, fetches data from this API to display the bucket list to the user.
+
+This separation allows the frontend and backend to be developed and deployed independently.
