@@ -1,8 +1,8 @@
 # Bucket List API
 
-This is a backend API for the Bucket List application. It provides data from a Google Sheet as a simple JSON API.
+This is the backend API for the Bucket List application. It serves data from a Google Sheet as a simple JSON API.
 
-This API is built with Google Apps Script and uses a Google Sheet as a database. It's designed to be a simple, serverless backend.
+This API is built with Google Apps Script and uses a Google Sheet as its database, providing a simple, serverless backend solution.
 
 ## Features
 
@@ -21,14 +21,12 @@ This API is built with Google Apps Script and uses a Google Sheet as a database.
 
 ## Getting Started
 
-Follow these instructions to set up and run the project.
-
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (which includes npm)
 - A Google Account
 
-### Installation & Setup
+### Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -54,11 +52,8 @@ Follow these instructions to set up and run the project.
 4.  **Create a Google Apps Script project:**
     You can either create a new project or connect to an existing one.
     ```bash
-    # Create a new project
+    # Create a new project and link it
     clasp create --title "Bucket List API"
-
-    # Or clone an existing project
-    # clasp clone <scriptId>
     ```
 
 5.  **Set up the Google Sheet:**
@@ -67,9 +62,12 @@ Follow these instructions to set up and run the project.
     - Get the **Spreadsheet ID** from its URL:
       `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
 
-6.  **Update the Spreadsheet ID in the code:**
-    - Open the `src/Code.js` file.
-    - Find the `SPREADSHEET_ID` variable and replace its value with your own sheet ID.
+## Configuration
+
+The API needs to know which Google Sheet to use as its data source.
+
+-   Open the `src/Code.js` file.
+-   Find the `SPREADSHEET_ID` variable and replace its value with your own sheet ID.
 
 ## Development
 
@@ -87,7 +85,7 @@ To deploy the API to Google Apps Script:
 ```bash
 npm run deploy
 ```
-This command first builds the code to make it compatible with Google Apps Script and then pushes it using `clasp`. After deploying, `clasp` will give you a URL for your web app.
+This command first builds the code to make it compatible with Google Apps Script and then pushes it using `clasp`. After deploying, `clasp` will provide you with a URL for your web app.
 
 ## API Usage
 
