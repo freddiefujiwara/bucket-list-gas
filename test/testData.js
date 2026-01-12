@@ -127,3 +127,19 @@ export const completedWithNoDate = [
     "extra7"
   ],
 ];
+
+// Case 6: A row with a future date for completed_at.
+export const futureDateData = [
+  headers,
+  [
+    8,
+    "計画",
+    40,
+    "来年の旅行計画を立てる",
+    "ヨーロッパ周遊を計画中。",
+    "",
+    false,
+    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow
+    "extra8"
+  ],
+];

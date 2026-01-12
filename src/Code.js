@@ -45,7 +45,9 @@ export function convertSheetDataToObjects(data) {
             break;
           }
           const date = new Date(value);
-          obj[header] = isNaN(date.getTime()) ? null : value;
+          // A date is valid if it's a real date and not in the future.
+          const isValidDate = !isNaN(date.getTime()) && date.getTime() <= new Date().getTime();
+          obj[header] = isValidDate ? date : null;
           break;
         default:
           // For unspecified columns, just pass the value through.
@@ -56,9 +58,9 @@ export function convertSheetDataToObjects(data) {
     }, {});
 
     // If an item is marked as completed but has no valid completion date,
-    // set it to the current time.
+    // set it to the current time as a Date object.
     if (normalizedObj.completed && !normalizedObj.completed_at) {
-      normalizedObj.completed_at = new Date().toISOString();
+      normalizedObj.completed_at = new Date();
     }
 
     return normalizedObj;

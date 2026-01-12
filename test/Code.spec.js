@@ -88,20 +88,24 @@ describe("doGet", () => {
 describe("convertSheetDataToObjects", () => {
   it("should correctly convert normal sheet data", () => {
     const result = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.normalSheetData))
+      testData.normalSheetData.map((row) => [...row])
     );
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe(1);
     expect(result[1].category).toBe("スキル・学習");
+    // Check that a valid date string is converted to a Date object
+    expect(result[1].completed_at).toEqual(new Date("2024-01-15T10:00:00.000Z"));
   });
 
   it("should handle boundary values correctly", () => {
     const result = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.boundarySheetData))
+      testData.boundarySheetData.map((row) => [...row])
     );
     expect(result).toHaveLength(2);
     expect(result[0].target_age).toBe(0);
     expect(result[0].title).toBe("A");
+    // Check that a valid date string is converted to a Date object
+    expect(result[0].completed_at).toEqual(new Date("2023-01-01T00:00:00.000Z"));
     expect(result[1].target_age).toBe(120);
     expect(result[1].title).toHaveLength(255);
   });
@@ -183,9 +187,24 @@ describe("convertSheetDataToObjects", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].completed).toBe(true);
-    expect(result[0].completed_at).toBe(fakeNow.toISOString());
+    expect(result[0].completed_at).toEqual(fakeNow);
 
     // Clean up the fake timers
+    vi.useRealTimers();
+  });
+
+  it("should normalize a future date to null", () => {
+    const fakeNow = new Date("2024-07-31T10:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+
+    const result = convertSheetDataToObjects(
+      testData.futureDateData.map((row) => [...row])
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].completed_at).toBeNull();
+
     vi.useRealTimers();
   });
 });
