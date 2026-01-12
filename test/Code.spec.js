@@ -106,7 +106,7 @@ describe("convertSheetDataToObjects", () => {
     expect(result[0].title).toBe("A");
     // Check that a valid date string is converted to a Date object
     expect(result[0].completed_at).toEqual(new Date("2023-01-01T00:00:00.000Z"));
-    expect(result[1].target_age).toBe(120);
+    expect(result[1].target_age).toBe(100);
     expect(result[1].title).toHaveLength(255);
   });
 
@@ -206,5 +206,35 @@ describe("convertSheetDataToObjects", () => {
     expect(result[0].completed_at).toBeNull();
 
     vi.useRealTimers();
+  });
+
+  it("should normalize out-of-range target_age to 0", () => {
+    const result = convertSheetDataToObjects(
+      testData.invalidAgeData.map((row) => [...row])
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0].target_age).toBe(0); // age was -1
+    expect(result[1].target_age).toBe(0); // age was 101
+  });
+
+  it("should trim whitespace from string fields", () => {
+    const result = convertSheetDataToObjects(
+      testData.untrimmedStringsData.map((row) => [...row])
+    );
+    expect(result).toHaveLength(1);
+    const item = result[0];
+    expect(item.category).toBe("カテゴリA");
+    expect(item.title).toBe("空白のあるタイトル");
+    expect(item.note).toBe("ノートのテキスト。");
+    expect(item.image_url).toBe("https://example.com/image.jpg");
+  });
+
+  it("should set completed_at to null if completed is false", () => {
+    const result = convertSheetDataToObjects(
+      testData.completedFalseWithDateData.map((row) => [...row])
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].completed).toBe(false);
+    expect(result[0].completed_at).toBeNull();
   });
 });

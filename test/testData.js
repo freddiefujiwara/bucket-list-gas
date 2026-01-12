@@ -65,7 +65,7 @@ export const boundarySheetData = [
   [
     4,
     "趣味・創作",
-    120, // High target_age
+    100, // High target_age
     "a".repeat(255), // Long title (255 chars)
     "b".repeat(1000), // Long note (1000 chars)
     "data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", // 1x1 transparent gif
@@ -141,5 +141,44 @@ export const futureDateData = [
     false,
     new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow
     "extra8"
+  ],
+];
+
+// Case 7: Data with out-of-range target_age values.
+export const invalidAgeData = [
+  headers,
+  [9, "エイジチェック", -1, "マイナスの年齢", "", "", false, "", "extra9"], // age < 0
+  [10, "エイジチェック", 101, "100を超える年齢", "", "", false, "", "extra10"], // age > 100
+];
+
+// Case 8: Data with strings that have leading/trailing whitespace.
+export const untrimmedStringsData = [
+  headers,
+  [
+    11,
+    "  カテゴリA  ",
+    30,
+    "  空白のあるタイトル  ",
+    "  ノートのテキスト。  ",
+    "  https://example.com/image.jpg  ",
+    false,
+    "",
+    "extra11"
+  ],
+];
+
+// Case 9: Data where completed is false but a completed_at date is present.
+export const completedFalseWithDateData = [
+  headers,
+  [
+    12,
+    "整合性チェック",
+    45,
+    "未完了なのに完了日がある",
+    "",
+    "",
+    false, // completed is false
+    "2024-01-01T00:00:00.000Z", // but completed_at is set
+    "extra12"
   ],
 ];

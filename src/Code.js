@@ -19,14 +19,17 @@ export function convertSheetDataToObjects(data) {
           obj[header] = isNaN(id) ? null : id;
           break;
         case "target_age":
-          const age = parseInt(value, 10);
-          obj[header] = isNaN(age) ? 0 : age;
+          let age = parseInt(value, 10);
+          if (isNaN(age) || age < 0 || age > 100) {
+            age = 0;
+          }
+          obj[header] = age;
           break;
         case "completed":
           obj[header] = String(value).toLowerCase() === "true";
           break;
         case "image_url":
-          const url = String(value ?? "");
+          const url = String(value ?? "").trim();
           obj[header] =
             url.startsWith("http://") ||
             url.startsWith("https://") ||
@@ -37,7 +40,7 @@ export function convertSheetDataToObjects(data) {
         case "category":
         case "title":
         case "note":
-          obj[header] = value ?? "";
+          obj[header] = String(value ?? "").trim();
           break;
         case "completed_at":
           if (!value) {
@@ -57,10 +60,15 @@ export function convertSheetDataToObjects(data) {
       return obj;
     }, {});
 
-    // If an item is marked as completed but has no valid completion date,
-    // set it to the current time as a Date object.
-    if (normalizedObj.completed && !normalizedObj.completed_at) {
-      normalizedObj.completed_at = new Date();
+    // Enforce consistency between 'completed' and 'completed_at'
+    if (normalizedObj.completed) {
+      // If completed is true but date is missing, set default date.
+      if (!normalizedObj.completed_at) {
+        normalizedObj.completed_at = new Date();
+      }
+    } else {
+      // If completed is false, date must be null.
+      normalizedObj.completed_at = null;
     }
 
     return normalizedObj;
