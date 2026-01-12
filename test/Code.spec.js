@@ -115,7 +115,8 @@ describe("convertSheetDataToObjects", () => {
     expect(result[0].title).toBe("毎朝のジョギングを習慣にする");
     // Missing string-like keys should be normalized to an empty string.
     expect(result[0].note).toBe("");
-    expect(result[0].completed_at).toBe("");
+    // `completed_at` is special and normalizes to null when missing.
+    expect(result[0].completed_at).toBeNull();
   });
 
   it("should handle and normalize varied and unexpected data types", () => {
@@ -144,8 +145,8 @@ describe("convertSheetDataToObjects", () => {
     // 'completed' is a string "false", should be converted to a boolean.
     expect(item.completed).toBe(false);
 
-    // 'completed_at' is an invalid date string, should be passed through as is.
-    expect(item.completed_at).toBe("2024-99-99");
+    // 'completed_at' is an invalid date string, should be normalized to null.
+    expect(item.completed_at).toBeNull();
   });
 
   it("should return an empty array for header-only data", () => {

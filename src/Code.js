@@ -37,8 +37,15 @@ export function convertSheetDataToObjects(data) {
         case "category":
         case "title":
         case "note":
-        case "completed_at":
           obj[header] = value ?? "";
+          break;
+        case "completed_at":
+          if (!value) {
+            obj[header] = null;
+            break;
+          }
+          const date = new Date(value);
+          obj[header] = isNaN(date.getTime()) ? null : value;
           break;
         default:
           // For unspecified columns, just pass the value through.
