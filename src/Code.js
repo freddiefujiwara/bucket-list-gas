@@ -56,7 +56,8 @@ export function convertSheetDataToObjects(data) {
           ) {
             acc[header] = normalizedTargetAge;
           } else {
-            acc[header] = ageValue;
+            // Normalize to the nearest decade by rounding down.
+            acc[header] = Math.floor(ageValue / 10) * 10;
           }
           break;
         case "completed":

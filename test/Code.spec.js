@@ -243,7 +243,7 @@ describe("convertSheetDataToObjects", () => {
       testData.targetAgeNormalizationData.map((row) => [...row])
     );
 
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(8);
     // Case 1: 20 < 40, should be overwritten.
     expect(result[0].target_age).toBe(40);
     // Case 2: 40 === 40, should NOT be overwritten.
@@ -256,6 +256,10 @@ describe("convertSheetDataToObjects", () => {
     expect(result[4].target_age).toBe(40);
     // Case 6: "" (empty string), should be overwritten.
     expect(result[5].target_age).toBe(40);
+    // Case 7: 49 is a valid age > 40, should be rounded down to 40.
+    expect(result[6].target_age).toBe(40);
+    // Case 8: 51 is a valid age > 40, should be rounded down to 50.
+    expect(result[7].target_age).toBe(50);
 
     vi.useRealTimers();
   });

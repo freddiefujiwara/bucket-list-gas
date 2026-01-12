@@ -278,4 +278,28 @@ export const targetAgeNormalizationData = [
     "",
     "extra19"
   ],
+  // Case 7: target_age is a non-decade value (49). Should be rounded down to 40.
+  [
+    20,
+    "年齢正規化",
+    49, // Input
+    "年齢が10刻みでない（切り捨て）",
+    "Should be rounded down to 40.",
+    "",
+    false,
+    "",
+    "extra20"
+  ],
+  // Case 8: target_age is a non-decade value (51). Should be rounded down to 50.
+  [
+    21,
+    "年齢正規化",
+    51, // Input
+    "年齢が10刻みでない（切り捨て）",
+    "Should be rounded down to 50.",
+    "",
+    false,
+    "",
+    "extra21"
+  ],
 ];
