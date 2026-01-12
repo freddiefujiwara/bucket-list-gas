@@ -128,6 +128,8 @@ GET https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
 
 ## Relationship with the Frontend
 
-This API serves as the backend for the "Bucket List" web application. The frontend, which is in a separate repository, fetches data from this API to display the bucket list to the user.
+This API serves as the backend for the "Bucket List" web application. The frontend fetches data from this API to display the bucket list to the user.
+
+- **Frontend Repository**: [freddiefujiwara/bucket-list](https://github.com/freddiefujiwara/bucket-list/tree/main)
 
 This separation allows the frontend and backend to be developed and deployed independently.
