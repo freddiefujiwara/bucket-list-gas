@@ -198,3 +198,84 @@ export const incorrectTargetAgeData = [
     "extra13"
   ],
 ];
+
+// --- 11. Data for Conditional target_age Normalization ---
+// This dataset tests the logic where target_age is conditionally overwritten
+// based on the calculated normalized age.
+// For these tests, we assume the person was born on 1979-09-02 and the current
+// year is around 2024, making their age ~45 and the normalized age 40.
+export const targetAgeNormalizationData = [
+  headers,
+  // Case 1: target_age is LESS than normalized age (20 < 40). Should be overwritten to 40.
+  [
+    14,
+    "年齢正規化",
+    20, // Input
+    "年齢が正規化年齢より小さい",
+    "Should be updated to 40.",
+    "",
+    false,
+    "",
+    "extra14"
+  ],
+  // Case 2: target_age is EQUAL to normalized age (40 == 40). Should NOT be overwritten.
+  [
+    15,
+    "年齢正規化",
+    40, // Input
+    "年齢が正規化年齢と等しい",
+    "Should remain 40.",
+    "",
+    false,
+    "",
+    "extra15"
+  ],
+  // Case 3: target_age is GREATER than normalized age (50 > 40). Should NOT be overwritten.
+  [
+    16,
+    "年齢正規化",
+    50, // Input
+    "年齢が正規化年齢より大きい",
+    "Should remain 50.",
+    "",
+    false,
+    "",
+    "extra16"
+  ],
+  // Case 4: target_age is invalid (over 100). Should be overwritten to 40.
+  [
+    17,
+    "年齢正規化",
+    130, // Input
+    "年齢が100を超える",
+    "Should be updated to 40.",
+    "",
+    false,
+    "",
+    "extra17"
+  ],
+  // Case 5: target_age is null. Should be overwritten to 40.
+  [
+    18,
+    "年齢正規化",
+    null, // Input
+    "年齢がnull",
+    "Should be updated to 40.",
+    "",
+    false,
+    "",
+    "extra18"
+  ],
+    // Case 6: target_age is an empty string. Should be overwritten to 40.
+  [
+    19,
+    "年齢正規化",
+    "", // Input
+    "年齢が空文字",
+    "Should be updated to 40.",
+    "",
+    false,
+    "",
+    "extra19"
+  ],
+];

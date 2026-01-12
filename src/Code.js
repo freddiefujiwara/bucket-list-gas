@@ -47,7 +47,17 @@ export function convertSheetDataToObjects(data) {
           acc[header] = isNaN(id) ? null : id;
           break;
         case "target_age":
-          acc[header] = normalizedTargetAge;
+          const ageValue = parseInt(value, 10);
+          if (
+            value == null || // Catches null and undefined
+            isNaN(ageValue) || // Catches non-numeric strings like ""
+            ageValue < normalizedTargetAge ||
+            ageValue > 100
+          ) {
+            acc[header] = normalizedTargetAge;
+          } else {
+            acc[header] = ageValue;
+          }
           break;
         case "completed":
           acc[header] = String(value).toLowerCase() === "true";

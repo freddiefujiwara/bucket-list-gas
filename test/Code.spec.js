@@ -232,19 +232,30 @@ describe("convertSheetDataToObjects", () => {
     expect(result[0].completed_at).toBeNull();
   });
 
-  it("should always normalize target_age based on the calculated age", () => {
-    // Set a date where the person born in 1979-09-02 is 46 years old.
-    const fakeNow = new Date("2025-09-02T10:00:00.000Z");
+  it("should conditionally normalize target_age based on calculated age", () => {
+    // Set a date where the person born in 1979-09-02 is 45 years old.
+    // The normalized age (floor(45 / 10) * 10) will be 40.
+    const fakeNow = new Date("2024-09-02T10:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(fakeNow);
 
     const result = convertSheetDataToObjects(
-      testData.incorrectTargetAgeData.map((row) => [...row])
+      testData.targetAgeNormalizationData.map((row) => [...row])
     );
 
-    expect(result).toHaveLength(1);
-    // The sheet value was 20, but it should be normalized to 40 (floor(46/10)*10).
+    expect(result).toHaveLength(6);
+    // Case 1: 20 < 40, should be overwritten.
     expect(result[0].target_age).toBe(40);
+    // Case 2: 40 === 40, should NOT be overwritten.
+    expect(result[1].target_age).toBe(40);
+    // Case 3: 50 > 40, should NOT be overwritten.
+    expect(result[2].target_age).toBe(50);
+    // Case 4: 130 > 100 (invalid), should be overwritten.
+    expect(result[3].target_age).toBe(40);
+    // Case 5: null, should be overwritten.
+    expect(result[4].target_age).toBe(40);
+    // Case 6: "" (empty string), should be overwritten.
+    expect(result[5].target_age).toBe(40);
 
     vi.useRealTimers();
   });
