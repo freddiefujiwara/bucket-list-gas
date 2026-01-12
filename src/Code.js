@@ -1,4 +1,30 @@
 const SPREADSHEET_ID = "1-ZPznr_lJfNU5tDBVuSEdcDigs1BC4Uu4LwkUL0bWEk";
+// Define the birth date in a way that is interpreted as Japan Standard Time (JST).
+// Using T00:00:00+09:00 ensures it's treated as the start of the day in JST.
+const BIRTH_DATE = new Date("1979-09-02T00:00:00+09:00");
+
+/**
+ * Calculates the full age based on a birth date and a current date.
+ * @param {Date} birthDate - The date of birth.
+ * @param {Date} nowDate - The current date.
+ * @returns {number} The calculated full age.
+ */
+export function calculateAge(birthDate, nowDate) {
+  const birthYear = birthDate.getFullYear();
+  const birthMonth = birthDate.getMonth();
+  const birthDay = birthDate.getDate();
+
+  const nowYear = nowDate.getFullYear();
+  const nowMonth = nowDate.getMonth();
+  const nowDay = nowDate.getDate();
+
+  let age = nowYear - birthYear;
+  // If the birthday for this year has not occurred yet, subtract one year.
+  if (nowMonth < birthMonth || (nowMonth === birthMonth && nowDay < birthDay)) {
+    age--;
+  }
+  return age;
+}
 
 /**
  * Converts spreadsheet data (2D array) into an array of objects.
@@ -8,6 +34,10 @@ const SPREADSHEET_ID = "1-ZPznr_lJfNU5tDBVuSEdcDigs1BC4Uu4LwkUL0bWEk";
  */
 export function convertSheetDataToObjects(data) {
   const headers = data.shift() || [];
+  const now = new Date(); // Use a single timestamp for the entire conversion process for consistency.
+  const actualAge = calculateAge(BIRTH_DATE, now);
+  const normalizedTargetAge = Math.floor(actualAge / 10) * 10;
+
   return data.map((row) => {
     const normalizedObj = headers.reduce((obj, header, index) => {
       const value = row[index];
@@ -19,11 +49,8 @@ export function convertSheetDataToObjects(data) {
           obj[header] = isNaN(id) ? null : id;
           break;
         case "target_age":
-          let age = parseInt(value, 10);
-          if (isNaN(age) || age < 0 || age > 100) {
-            age = 0;
-          }
-          obj[header] = age;
+          // Always override with the calculated, normalized age.
+          obj[header] = normalizedTargetAge;
           break;
         case "completed":
           obj[header] = String(value).toLowerCase() === "true";
@@ -49,7 +76,7 @@ export function convertSheetDataToObjects(data) {
           }
           const date = new Date(value);
           // A date is valid if it's a real date and not in the future.
-          const isValidDate = !isNaN(date.getTime()) && date.getTime() <= new Date().getTime();
+          const isValidDate = !isNaN(date.getTime()) && date.getTime() <= now.getTime();
           obj[header] = isValidDate ? date : null;
           break;
         default:
@@ -64,7 +91,7 @@ export function convertSheetDataToObjects(data) {
     if (normalizedObj.completed) {
       // If completed is true but date is missing, set default date.
       if (!normalizedObj.completed_at) {
-        normalizedObj.completed_at = new Date();
+        normalizedObj.completed_at = now;
       }
     } else {
       // If completed is false, date must be null.

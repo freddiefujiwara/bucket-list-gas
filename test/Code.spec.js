@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import * as testData from "./testData.js";
 
-let doGet, convertSheetDataToObjects;
+let doGet, convertSheetDataToObjects, calculateAge;
 
 // Mock implementation for Google Apps Script APIs
 const mockTextOutput = {
@@ -51,6 +51,7 @@ beforeEach(async () => {
   const module = await import("../src/Code.js");
   doGet = module.doGet;
   convertSheetDataToObjects = module.convertSheetDataToObjects;
+  calculateAge = module.calculateAge;
 });
 
 describe("doGet", () => {
@@ -102,11 +103,9 @@ describe("convertSheetDataToObjects", () => {
       testData.boundarySheetData.map((row) => [...row])
     );
     expect(result).toHaveLength(2);
-    expect(result[0].target_age).toBe(0);
     expect(result[0].title).toBe("A");
     // Check that a valid date string is converted to a Date object
     expect(result[0].completed_at).toEqual(new Date("2023-01-01T00:00:00.000Z"));
-    expect(result[1].target_age).toBe(100);
     expect(result[1].title).toHaveLength(255);
   });
 
@@ -124,6 +123,10 @@ describe("convertSheetDataToObjects", () => {
   });
 
   it("should handle and normalize varied and unexpected data types", () => {
+    const fakeNow = new Date("2020-01-01T00:00:00.000Z"); // A date when age is 40
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+
     const result = convertSheetDataToObjects(
       // Note: JSON.stringify converts `undefined` to `null`, so we deep-copy manually.
       testData.dataTypeVarietyData.map((row) => [...row])
@@ -137,8 +140,8 @@ describe("convertSheetDataToObjects", () => {
     // 'category' is null, should be normalized to an empty string.
     expect(item.category).toBe("");
 
-    // 'target_age' is a string "sixty", which is not a number, should default to 0.
-    expect(item.target_age).toBe(0);
+    // 'target_age' is always overridden, should be 40 based on fakeNow.
+    expect(item.target_age).toBe(40);
 
     // 'note' is undefined, should be normalized to an empty string.
     expect(item.note).toBe("");
@@ -208,15 +211,6 @@ describe("convertSheetDataToObjects", () => {
     vi.useRealTimers();
   });
 
-  it("should normalize out-of-range target_age to 0", () => {
-    const result = convertSheetDataToObjects(
-      testData.invalidAgeData.map((row) => [...row])
-    );
-    expect(result).toHaveLength(2);
-    expect(result[0].target_age).toBe(0); // age was -1
-    expect(result[1].target_age).toBe(0); // age was 101
-  });
-
   it("should trim whitespace from string fields", () => {
     const result = convertSheetDataToObjects(
       testData.untrimmedStringsData.map((row) => [...row])
@@ -236,5 +230,41 @@ describe("convertSheetDataToObjects", () => {
     expect(result).toHaveLength(1);
     expect(result[0].completed).toBe(false);
     expect(result[0].completed_at).toBeNull();
+  });
+
+  it("should always normalize target_age based on the calculated age", () => {
+    // Set a date where the person born in 1979-09-02 is 46 years old.
+    const fakeNow = new Date("2025-09-02T10:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+
+    const result = convertSheetDataToObjects(
+      testData.incorrectTargetAgeData.map((row) => [...row])
+    );
+
+    expect(result).toHaveLength(1);
+    // The sheet value was 20, but it should be normalized to 40 (floor(46/10)*10).
+    expect(result[0].target_age).toBe(40);
+
+    vi.useRealTimers();
+  });
+});
+
+describe("calculateAge", () => {
+  const birthDate = new Date("1979-09-02T00:00:00+09:00");
+
+  it("should calculate age correctly the day before the birthday", () => {
+    const nowDate = new Date("2025-09-01T00:00:00+09:00"); // 46th birthday is tomorrow
+    expect(calculateAge(birthDate, nowDate)).toBe(45);
+  });
+
+  it("should calculate age correctly on the birthday", () => {
+    const nowDate = new Date("2025-09-02T00:00:00+09:00"); // 46th birthday
+    expect(calculateAge(birthDate, nowDate)).toBe(46);
+  });
+
+  it("should calculate age correctly the day after the birthday", () => {
+    const nowDate = new Date("2025-09-03T00:00:00+09:00"); // 46th birthday was yesterday
+    expect(calculateAge(birthDate, nowDate)).toBe(46);
   });
 });

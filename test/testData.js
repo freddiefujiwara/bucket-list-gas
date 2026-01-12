@@ -182,3 +182,19 @@ export const completedFalseWithDateData = [
     "extra12"
   ],
 ];
+
+// Case 10: Data with a target_age that doesn't match the calculated age.
+export const incorrectTargetAgeData = [
+  headers,
+  [
+    13,
+    "年齢の不整合",
+    20, // This is incorrect for a person born in 1979 and should be overridden.
+    "target_ageが実年齢と合わない",
+    "",
+    "",
+    false,
+    "",
+    "extra13"
+  ],
+];
