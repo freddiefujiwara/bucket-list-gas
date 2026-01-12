@@ -5,8 +5,10 @@ import * as testData from "./testData.js";
 let doGet, convertSheetDataToObjects, calculateAge;
 
 // Mock implementation for Google Apps Script APIs
-const mockTextOutput = {
-  content: "",
+// A factory function to create a new mock TextOutput object for each call,
+// ensuring test isolation.
+const createMockTextOutput = (content = "") => ({
+  content: content,
   mimeType: "",
   setContent: function (text) {
     this.content = text;
@@ -16,30 +18,51 @@ const mockTextOutput = {
     this.mimeType = type;
     return this;
   },
-};
+});
 
 const mockContentService = {
-  createTextOutput: vi.fn(() => {
-    // Reset content for each call to simulate a new TextOutput object
-    mockTextOutput.content = "";
-    mockTextOutput.mimeType = "";
-    return mockTextOutput;
-  }),
+  // Pass the optional content argument to the factory.
+  createTextOutput: vi.fn((content) => createMockTextOutput(content)),
   MimeType: {
     JAVASCRIPT: "application/javascript",
+    TEXT: "text/plain",
   },
 };
 
 const mockSheet = {
-  getDataRange: vi.fn(() => ({
-    getValues: vi.fn(() => JSON.parse(JSON.stringify(testData.normalSheetData))), // Return a deep copy
-  })),
+  // Simulate a non-empty sheet
+  lastRow: testData.normalSheetData.length,
+  lastCol: testData.normalSheetData[0]?.length || 0,
+  data: JSON.parse(JSON.stringify(testData.normalSheetData)),
+
+  getLastRow: vi.fn(function () {
+    return this.lastRow;
+  }),
+  getLastColumn: vi.fn(function () {
+    return this.lastCol;
+  }),
+  getRange: vi.fn(function (r, c, numRows, numCols) {
+    // Basic implementation to return the data for the requested range
+    return {
+      getValues: vi.fn(() => this.data),
+    };
+  }),
+};
+
+// Function to reset the mock sheet's data for different test scenarios
+const setMockSheetData = (data) => {
+  const deepCopy = JSON.parse(JSON.stringify(data));
+  mockSheet.data = deepCopy;
+  mockSheet.lastRow = deepCopy.length;
+  mockSheet.lastCol = deepCopy[0]?.length || 0;
+};
+
+const mockSpreadsheet = {
+  getSheetByName: vi.fn((name) => (name === "list" ? mockSheet : null)),
 };
 
 const mockSpreadsheetApp = {
-  openById: vi.fn(() => ({
-    getSheetByName: vi.fn(() => mockSheet),
-  })),
+  openById: vi.fn(() => mockSpreadsheet),
 };
 
 // Stub the global objects before each test
@@ -55,34 +78,78 @@ beforeEach(async () => {
 });
 
 describe("doGet", () => {
-  it("should return JSON when no callback is provided", () => {
-    const e = { parameter: {} };
-    // Dynamically generate the expected result based on the imported test data
-    const expectedResult = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.normalSheetData))
+  beforeEach(() => {
+    // Reset mocks to their default state before each test
+    vi.clearAllMocks();
+    mockSpreadsheet.getSheetByName.mockImplementation((name) =>
+      name === "list" ? mockSheet : null
     );
-    const expectedJson = JSON.stringify(expectedResult);
-
-    const result = doGet(e);
-
-    expect(result.content).toBe(expectedJson);
-    expect(result.mimeType).toBe("application/javascript");
+    setMockSheetData(testData.normalSheetData);
   });
 
-  it("should return JSONP when a callback is provided", () => {
+  it("should return JSON with TEXT MIME type when no callback is provided", () => {
+    const e = { parameter: {} };
+    const result = doGet(e);
+    const parsedResult = JSON.parse(result.content);
+
+    expect(parsedResult).toHaveLength(2);
+    expect(parsedResult[0].id).toBe(1);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
+  });
+
+  it("should return JSONP with a valid callback", () => {
     const callbackName = "myCallback";
     const e = { parameter: { callback: callbackName } };
-    const expectedResult = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.normalSheetData))
-    );
-    const expectedJsonp = `${callbackName}&&${callbackName}(${JSON.stringify(
-      expectedResult
-    )});`;
-
     const result = doGet(e);
 
-    expect(result.content).toBe(expectedJsonp);
-    expect(result.mimeType).toBe("application/javascript");
+    expect(result.content.startsWith(`${callbackName}(`)).toBe(true);
+    expect(result.content.endsWith(");")).toBe(true);
+    expect(result.mimeType).toBe(mockContentService.MimeType.JAVASCRIPT);
+  });
+
+  it("should fall back to JSON with an invalid callback", () => {
+    const invalidCallback = "invalid-callback;";
+    const e = { parameter: { callback: invalidCallback } };
+    const result = doGet(e);
+    const parsedResult = JSON.parse(result.content);
+
+    expect(parsedResult).toHaveLength(2);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
+  });
+
+  it("should return a 404 error if the sheet is not found", () => {
+    mockSpreadsheet.getSheetByName.mockReturnValue(null);
+    const e = { parameter: {} };
+    const result = doGet(e);
+    const parsedError = JSON.parse(result.content);
+
+    expect(parsedError.error.code).toBe(404);
+    expect(parsedError.error.message).toBe("Sheet 'list' not found.");
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
+  });
+
+  it("should run without error when `e` is undefined", () => {
+    // Simulates running from the Apps Script editor
+    const result = doGet(undefined);
+    const parsedResult = JSON.parse(result.content);
+    expect(parsedResult).toHaveLength(2);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
+  });
+
+  it("should handle an empty sheet (no data) and return an empty array", () => {
+    setMockSheetData([]);
+    const e = { parameter: {} };
+    const result = doGet(e);
+    const parsedResult = JSON.parse(result.content);
+    expect(parsedResult).toEqual([]);
+  });
+
+  it("should handle a sheet with only headers and return an empty array", () => {
+    setMockSheetData([testData.headers]);
+    const e = { parameter: {} };
+    const result = doGet(e);
+    const parsedResult = JSON.parse(result.content);
+    expect(parsedResult).toEqual([]);
   });
 });
 
@@ -94,8 +161,8 @@ describe("convertSheetDataToObjects", () => {
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe(1);
     expect(result[1].category).toBe("スキル・学習");
-    // Check that a valid date string is converted to a Date object
-    expect(result[1].completed_at).toEqual(new Date("2024-01-15T10:00:00.000Z"));
+    // Check that a valid date string is converted to an ISO string.
+    expect(result[1].completed_at).toBe("2024-01-15T10:00:00.000Z");
   });
 
   it("should handle boundary values correctly", () => {
@@ -104,8 +171,8 @@ describe("convertSheetDataToObjects", () => {
     );
     expect(result).toHaveLength(2);
     expect(result[0].title).toBe("A");
-    // Check that a valid date string is converted to a Date object
-    expect(result[0].completed_at).toEqual(new Date("2023-01-01T00:00:00.000Z"));
+    // Check that a valid date string is converted to an ISO string.
+    expect(result[0].completed_at).toBe("2023-01-01T00:00:00.000Z");
     expect(result[1].title).toHaveLength(255);
   });
 
@@ -163,10 +230,13 @@ describe("convertSheetDataToObjects", () => {
     expect(result).toEqual([]);
   });
 
-  it("should return an empty array for completely empty data", () => {
-    const result = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.emptySheetData))
-    );
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["an empty array", []],
+    ["an array with one empty row", [[]]],
+  ])("should return an empty array when input is %s", (name, input) => {
+    const result = convertSheetDataToObjects(input);
     expect(result).toEqual([]);
   });
 
@@ -190,7 +260,8 @@ describe("convertSheetDataToObjects", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].completed).toBe(true);
-    expect(result[0].completed_at).toEqual(fakeNow);
+    // Should be the ISO string representation of the fake Date
+    expect(result[0].completed_at).toBe(fakeNow.toISOString());
 
     // Clean up the fake timers
     vi.useRealTimers();
@@ -260,6 +331,82 @@ describe("convertSheetDataToObjects", () => {
     expect(result[6].target_age).toBe(40);
     // Case 8: 51 is a valid age > 40, should be rounded down to 50.
     expect(result[7].target_age).toBe(50);
+
+    vi.useRealTimers();
+  });
+
+  it("should handle varied header casing and spacing", () => {
+    const dataWithVariedHeaders = [
+      [
+        " ID ",
+        "Category",
+        "TARGET_AGE",
+        "  TITLE",
+        "note  ",
+        "IMAGE_URL",
+        "Completed",
+        "completed_at",
+      ],
+      [
+        1,
+        "Test",
+        40,
+        "Header Test",
+        "Note",
+        "http://example.com",
+        true,
+        "2024-01-01T00:00:00.000Z",
+      ],
+    ];
+    const result = convertSheetDataToObjects(dataWithVariedHeaders);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(1);
+    expect(result[0].category).toBe("Test");
+    expect(result[0].target_age).toBe(40);
+    expect(result[0].title).toBe("Header Test");
+    expect(result[0].image_url).toBe("http://example.com");
+    expect(result[0].completed).toBe(true);
+    expect(result[0].completed_at).toBe("2024-01-01T00:00:00.000Z");
+  });
+
+  it("should correctly parse various truthy values for 'completed'", () => {
+    const data = [
+      testData.headers,
+      [1, "C", 30, "T1", "N", "", true, ""],
+      [2, "C", 30, "T2", "N", "", "true", ""],
+      [3, "C", 30, "T3", "N", "", "TRUE", ""],
+      [4, "C", 30, "T4", "N", "", 1, ""],
+      [5, "C", 30, "T5", "N", "", "1", ""],
+      [6, "C", 30, "T6", "N", "", "yes", ""],
+    ];
+    const result = convertSheetDataToObjects(data);
+    expect(result.every((item) => item.completed === true)).toBe(true);
+  });
+
+  it("should correctly handle Date objects for 'completed_at'", () => {
+    const date = new Date("2024-01-20T12:00:00.000Z");
+    const data = [
+      testData.headers,
+      [1, "C", 30, "T1", "N", "", true, date],
+    ];
+    const result = convertSheetDataToObjects(data);
+    expect(result[0].completed_at).toBe(date.toISOString());
+  });
+
+  it("should override a future Date object with the current time", () => {
+    const fakeNow = new Date("2024-08-01T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+
+    const futureDate = new Date("2099-01-01T00:00:00.000Z");
+    const data = [
+      testData.headers,
+      [1, "C", 30, "T1", "N", "", true, futureDate], // `completed` is true
+    ];
+    const result = convertSheetDataToObjects(data);
+
+    // If completed is true, a future date is invalid, so it should be replaced by now.
+    expect(result[0].completed_at).toBe(fakeNow.toISOString());
 
     vi.useRealTimers();
   });
