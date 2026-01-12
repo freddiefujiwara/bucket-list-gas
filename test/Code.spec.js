@@ -170,4 +170,22 @@ describe("convertSheetDataToObjects", () => {
     expect(result[0].extra_field).toBe("extra1");
     expect(result[1].extra_field).toBe("extra2");
   });
+
+  it("should set completed_at to the current date if completed is true but date is missing", () => {
+    // Fake the system time to get a predictable ISO string
+    const fakeNow = new Date("2024-07-31T10:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+
+    const result = convertSheetDataToObjects(
+      testData.completedWithNoDate.map((row) => [...row])
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].completed).toBe(true);
+    expect(result[0].completed_at).toBe(fakeNow.toISOString());
+
+    // Clean up the fake timers
+    vi.useRealTimers();
+  });
 });

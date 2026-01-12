@@ -9,7 +9,7 @@ const SPREADSHEET_ID = "1-ZPznr_lJfNU5tDBVuSEdcDigs1BC4Uu4LwkUL0bWEk";
 export function convertSheetDataToObjects(data) {
   const headers = data.shift() || [];
   return data.map((row) => {
-    return headers.reduce((obj, header, index) => {
+    const normalizedObj = headers.reduce((obj, header, index) => {
       const value = row[index];
 
       // Assign a normalized value based on the header key
@@ -49,12 +49,19 @@ export function convertSheetDataToObjects(data) {
           break;
         default:
           // For unspecified columns, just pass the value through.
-          // This also handles cases where a row is shorter than the header list; `value` will be `undefined`.
           obj[header] = value;
           break;
       }
       return obj;
     }, {});
+
+    // If an item is marked as completed but has no valid completion date,
+    // set it to the current time.
+    if (normalizedObj.completed && !normalizedObj.completed_at) {
+      normalizedObj.completed_at = new Date().toISOString();
+    }
+
+    return normalizedObj;
   });
 }
 

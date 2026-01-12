@@ -111,3 +111,19 @@ export const headerOnlySheetData = [headers];
 
 // Case 4: A completely empty sheet.
 export const emptySheetData = [];
+
+// Case 5: A row that is completed but has no completed_at date.
+export const completedWithNoDate = [
+  headers,
+  [
+    7,
+    "自己改善",
+    25,
+    "読書量を増やす",
+    "月に4冊の本を読むことを目標にする。",
+    "",
+    true, // completed is true
+    "",   // completed_at is empty
+    "extra7"
+  ],
+];
