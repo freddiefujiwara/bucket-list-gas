@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-let doGet;
+let doGet, convertSheetDataToObjects;
 
 // Mock data representing spreadsheet values
 const mockValues = [
@@ -52,8 +52,10 @@ beforeEach(async () => {
   vi.resetModules();
   vi.stubGlobal("SpreadsheetApp", mockSpreadsheetApp);
   vi.stubGlobal("ContentService", mockContentService);
+
   const module = await import("../src/Code.js");
   doGet = module.doGet;
+  convertSheetDataToObjects = module.convertSheetDataToObjects;
 });
 
 describe("doGet", () => {
@@ -82,5 +84,36 @@ describe("doGet", () => {
 
     expect(result.content).toBe(expectedJsonp);
     expect(result.mimeType).toBe("application/javascript");
+  });
+});
+
+describe("convertSheetDataToObjects", () => {
+  it("should convert a 2D array to an array of objects", () => {
+    const input = [
+      ["id", "name"],
+      [1, "foo"],
+      [2, "bar"],
+    ];
+    const expected = [
+      { id: 1, name: "foo" },
+      { id: 2, name: "bar" },
+    ];
+
+    const result = convertSheetDataToObjects(input);
+    expect(result).toEqual(expected);
+  });
+
+  it("should handle empty data gracefully", () => {
+    const input = [];
+    const expected = [];
+    const result = convertSheetDataToObjects(input);
+    expect(result).toEqual(expected);
+  });
+
+  it("should handle data with only a header row", () => {
+    const input = [["id", "name"]];
+    const expected = [];
+    const result = convertSheetDataToObjects(input);
+    expect(result).toEqual(expected);
   });
 });
