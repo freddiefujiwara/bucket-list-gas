@@ -113,20 +113,39 @@ describe("convertSheetDataToObjects", () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(5);
     expect(result[0].title).toBe("毎朝のジョギングを習慣にする");
-    // Missing keys should result in undefined properties
-    expect(result[0].note).toBeUndefined();
-    expect(result[0].completed_at).toBeUndefined();
+    // Missing string-like keys should be normalized to an empty string.
+    expect(result[0].note).toBe("");
+    expect(result[0].completed_at).toBe("");
   });
 
-  it("should handle varied and unexpected data types", () => {
+  it("should handle and normalize varied and unexpected data types", () => {
     const result = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.dataTypeVarietyData))
+      // Note: JSON.stringify converts `undefined` to `null`, so we deep-copy manually.
+      testData.dataTypeVarietyData.map((row) => [...row])
     );
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("6"); // Stays as a string
-    expect(result[0].category).toBeNull(); // Stays as null
-    // undefined in the source array becomes null after JSON.parse(JSON.stringify())
-    expect(result[0].note).toBeNull();
+    const item = result[0];
+
+    // 'id' is "not-a-number", which should result in null.
+    expect(item.id).toBeNull();
+
+    // 'category' is null, should be normalized to an empty string.
+    expect(item.category).toBe("");
+
+    // 'target_age' is a string "sixty", which is not a number, should default to 0.
+    expect(item.target_age).toBe(0);
+
+    // 'note' is undefined, should be normalized to an empty string.
+    expect(item.note).toBe("");
+
+    // 'image_url' is an invalid format, should be an empty string.
+    expect(item.image_url).toBe("");
+
+    // 'completed' is a string "false", should be converted to a boolean.
+    expect(item.completed).toBe(false);
+
+    // 'completed_at' is an invalid date string, should be passed through as is.
+    expect(item.completed_at).toBe("2024-99-99");
   });
 
   it("should return an empty array for header-only data", () => {
@@ -141,5 +160,13 @@ describe("convertSheetDataToObjects", () => {
       JSON.parse(JSON.stringify(testData.emptySheetData))
     );
     expect(result).toEqual([]);
+  });
+
+  it("should pass through unhandled fields via the default case", () => {
+    const result = convertSheetDataToObjects(
+      JSON.parse(JSON.stringify(testData.normalSheetData))
+    );
+    expect(result[0].extra_field).toBe("extra1");
+    expect(result[1].extra_field).toBe("extra2");
   });
 });

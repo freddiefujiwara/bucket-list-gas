@@ -15,6 +15,7 @@ export const headers = [
   "image_url",
   "completed",
   "completed_at",
+  "extra_field", // Add a field that is not explicitly handled in the switch case
 ];
 
 // --- 1. Normal Case Data ---
@@ -30,16 +31,18 @@ export const normalSheetData = [
     "data:image/jpeg;base64,/9j/4AAQSk.../Z", // Shortened for readability
     false,
     "",
+    "extra1",
   ],
   [
     2,
     "スキル・学習",
     30,
-    "新しいプログラミング言語を習得する",
+    "新しいプログラミング言語を習득する",
     "Webフロントエンドの知識を深めるために、TypeScriptを学びたい。",
     "data:image/png;base64,iVBORw0KGgo...", // Shortened for readability
     true,
     "2024-01-15T10:00:00.000Z",
+    "extra2",
   ],
 ];
 
@@ -92,7 +95,7 @@ export const abnormalSheetDataShortRow = [
 export const dataTypeVarietyData = [
   headers,
   [
-    "6", // id as string
+    "not-a-number", // id as an unparsable string
     null, // category as null
     "sixty", // target_age as string
     "データ型が混在したリスト",

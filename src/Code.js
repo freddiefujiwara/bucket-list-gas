@@ -9,8 +9,43 @@ const SPREADSHEET_ID = "1-ZPznr_lJfNU5tDBVuSEdcDigs1BC4Uu4LwkUL0bWEk";
 export function convertSheetDataToObjects(data) {
   const headers = data.shift() || [];
   return data.map((row) => {
-    return row.reduce((obj, cell, index) => {
-      obj[headers[index]] = cell;
+    return headers.reduce((obj, header, index) => {
+      const value = row[index];
+
+      // Assign a normalized value based on the header key
+      switch (header) {
+        case "id":
+          const id = parseInt(value, 10);
+          obj[header] = isNaN(id) ? null : id;
+          break;
+        case "target_age":
+          const age = parseInt(value, 10);
+          obj[header] = isNaN(age) ? 0 : age;
+          break;
+        case "completed":
+          obj[header] = String(value).toLowerCase() === "true";
+          break;
+        case "image_url":
+          const url = String(value ?? "");
+          obj[header] =
+            url.startsWith("http://") ||
+            url.startsWith("https://") ||
+            url.startsWith("data:image/")
+              ? url
+              : "";
+          break;
+        case "category":
+        case "title":
+        case "note":
+        case "completed_at":
+          obj[header] = value ?? "";
+          break;
+        default:
+          // For unspecified columns, just pass the value through.
+          // This also handles cases where a row is shorter than the header list; `value` will be `undefined`.
+          obj[header] = value;
+          break;
+      }
       return obj;
     }, {});
   });
