@@ -56,10 +56,11 @@ const parse = {
     return Math.floor(ageValue / 10) * 10;
   },
 
-  completed: (v) => {
-    const s = safeTrim(String(v)).toLowerCase();
-    return s === "true" || s === "1" || s === "yes" || v === true;
-  },
+  completed: (() => {
+    // Use a Set for efficient and readable lookups of truthy string values.
+    const truthy = new Set(["true", "1", "yes"]);
+    return (v) => v === true || truthy.has(safeTrim(v).toLowerCase());
+  })(),
 
   image_url: (v) => {
     const url = safeTrim(v);
@@ -103,6 +104,10 @@ const headerToParserMap = {
  * @returns {Object[]} An array of objects.
  */
 export function convertSheetDataToObjects(data) {
+  // Guard against non-array or empty inputs.
+  if (!Array.isArray(data) || data.length === 0) {
+    return [];
+  }
   // Use destructuring for a non-destructive way to get headers and rows.
   const [headerRow, ...rows] = data;
   if (!headerRow) return [];
@@ -111,9 +116,11 @@ export function convertSheetDataToObjects(data) {
   const normalizedHeaders = headerRow.map((h) => safeTrim(h).toLowerCase());
 
   const now = new Date();
+  const nowISO = now.toISOString();
   const actualAge = calculateAge(BIRTH_DATE, now);
   const normalizedTargetAge = Math.floor(actualAge / 10) * 10;
-  const context = { now, normalizedTargetAge };
+  // Pass only primitive, pre-calculated values to the context.
+  const context = { normalizedTargetAge };
 
   return rows.map((row) => {
     const obj = normalizedHeaders.reduce((acc, header, index) => {
@@ -125,10 +132,10 @@ export function convertSheetDataToObjects(data) {
 
     // Post-processing to enforce consistency.
     if (obj.completed) {
-      const completedDate = obj.completed_at ? new Date(obj.completed_at) : null;
-      // If the date is invalid or in the future, override it.
-      if (!completedDate || completedDate.getTime() > now.getTime()) {
-        obj.completed_at = now.toISOString();
+      // A valid completed_at must be a non-future ISO string.
+      // String comparison works for ISO 8601 format.
+      if (!obj.completed_at || obj.completed_at > nowISO) {
+        obj.completed_at = nowISO;
       }
     } else {
       // If not completed, completed_at must be null.
@@ -152,9 +159,11 @@ function createErrorResponse(message, statusCode) {
       message: message,
     },
   };
-  return ContentService.createTextOutput(JSON.stringify(errorObject))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("X-Content-Type-Options", "nosniff");
+  // Use MimeType.TEXT as MimeType.JSON may not be available.
+  // setHeader is also not reliably available on TextOutput.
+  return ContentService.createTextOutput(JSON.stringify(errorObject)).setMimeType(
+    ContentService.MimeType.TEXT
+  );
 }
 
 /**
@@ -195,20 +204,18 @@ export function doGet(e) {
   }
 
   const result = convertSheetDataToObjects(values);
-  const output = ContentService.createTextOutput();
-  const callback = e.parameter.callback;
+  // Handle cases where `e` is undefined (e.g., direct execution from editor).
+  const callback = e?.parameter?.callback;
 
   if (isValidCallback(callback)) {
     // Valid JSONP request
-    output
-      .setContent(`${callback}(${JSON.stringify(result)});`)
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    return ContentService.createTextOutput(
+      `${callback}(${JSON.stringify(result)});`
+    ).setMimeType(ContentService.MimeType.JAVASCRIPT);
   } else {
-    // Standard JSON response
-    output
-      .setContent(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
+    // Standard JSON response, using TEXT as JSON is not a standard MimeType.
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(
+      ContentService.MimeType.TEXT
+    );
   }
-
-  return output;
 }

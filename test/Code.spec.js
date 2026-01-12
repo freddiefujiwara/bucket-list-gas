@@ -10,17 +10,12 @@ let doGet, convertSheetDataToObjects, calculateAge;
 const createMockTextOutput = (content = "") => ({
   content: content,
   mimeType: "",
-  headers: {},
   setContent: function (text) {
     this.content = text;
     return this;
   },
   setMimeType: function (type) {
     this.mimeType = type;
-    return this;
-  },
-  setHeader: function (key, value) {
-    this.headers[key] = value;
     return this;
   },
 });
@@ -30,7 +25,7 @@ const mockContentService = {
   createTextOutput: vi.fn((content) => createMockTextOutput(content)),
   MimeType: {
     JAVASCRIPT: "application/javascript",
-    JSON: "application/json",
+    TEXT: "text/plain",
   },
 };
 
@@ -92,14 +87,14 @@ describe("doGet", () => {
     setMockSheetData(testData.normalSheetData);
   });
 
-  it("should return JSON with correct MIME type when no callback is provided", () => {
+  it("should return JSON with TEXT MIME type when no callback is provided", () => {
     const e = { parameter: {} };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
 
     expect(parsedResult).toHaveLength(2);
     expect(parsedResult[0].id).toBe(1);
-    expect(result.mimeType).toBe(mockContentService.MimeType.JSON);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
   });
 
   it("should return JSONP with a valid callback", () => {
@@ -119,7 +114,7 @@ describe("doGet", () => {
     const parsedResult = JSON.parse(result.content);
 
     expect(parsedResult).toHaveLength(2);
-    expect(result.mimeType).toBe(mockContentService.MimeType.JSON);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
   });
 
   it("should return a 404 error if the sheet is not found", () => {
@@ -130,7 +125,15 @@ describe("doGet", () => {
 
     expect(parsedError.error.code).toBe(404);
     expect(parsedError.error.message).toBe("Sheet 'list' not found.");
-    expect(result.mimeType).toBe(mockContentService.MimeType.JSON);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
+  });
+
+  it("should run without error when `e` is undefined", () => {
+    // Simulates running from the Apps Script editor
+    const result = doGet(undefined);
+    const parsedResult = JSON.parse(result.content);
+    expect(parsedResult).toHaveLength(2);
+    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
   });
 
   it("should handle an empty sheet (no data) and return an empty array", () => {
@@ -227,10 +230,13 @@ describe("convertSheetDataToObjects", () => {
     expect(result).toEqual([]);
   });
 
-  it("should return an empty array for completely empty data", () => {
-    const result = convertSheetDataToObjects(
-      JSON.parse(JSON.stringify(testData.emptySheetData))
-    );
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["an empty array", []],
+    ["an array with one empty row", [[]]],
+  ])("should return an empty array when input is %s", (name, input) => {
+    const result = convertSheetDataToObjects(input);
     expect(result).toEqual([]);
   });
 
