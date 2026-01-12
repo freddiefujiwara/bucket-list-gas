@@ -34,71 +34,52 @@ export function calculateAge(birthDate, nowDate) {
  */
 export function convertSheetDataToObjects(data) {
   const headers = data.shift() || [];
-  const now = new Date(); // Use a single timestamp for the entire conversion process for consistency.
+  const now = new Date(); // Use a single timestamp for the entire conversion process.
   const actualAge = calculateAge(BIRTH_DATE, now);
   const normalizedTargetAge = Math.floor(actualAge / 10) * 10;
 
   return data.map((row) => {
-    const normalizedObj = headers.reduce((obj, header, index) => {
+    const obj = headers.reduce((acc, header, index) => {
       const value = row[index];
-
-      // Assign a normalized value based on the header key
       switch (header) {
         case "id":
           const id = parseInt(value, 10);
-          obj[header] = isNaN(id) ? null : id;
+          acc[header] = isNaN(id) ? null : id;
           break;
         case "target_age":
-          // Always override with the calculated, normalized age.
-          obj[header] = normalizedTargetAge;
+          acc[header] = normalizedTargetAge;
           break;
         case "completed":
-          obj[header] = String(value).toLowerCase() === "true";
+          acc[header] = String(value).toLowerCase() === "true";
           break;
         case "image_url":
           const url = String(value ?? "").trim();
-          obj[header] =
-            url.startsWith("http://") ||
-            url.startsWith("https://") ||
-            url.startsWith("data:image/")
-              ? url
-              : "";
+          acc[header] = /^(https?:\/\/|data:image\/)/.test(url) ? url : "";
           break;
         case "category":
         case "title":
         case "note":
-          obj[header] = String(value ?? "").trim();
+          acc[header] = String(value ?? "").trim();
           break;
         case "completed_at":
-          if (!value) {
-            obj[header] = null;
-            break;
-          }
           const date = new Date(value);
-          // A date is valid if it's a real date and not in the future.
-          const isValidDate = !isNaN(date.getTime()) && date.getTime() <= now.getTime();
-          obj[header] = isValidDate ? date : null;
+          acc[header] =
+            !isNaN(date.getTime()) && date.getTime() <= now.getTime()
+              ? date
+              : null;
           break;
         default:
-          // For unspecified columns, just pass the value through.
-          obj[header] = value;
+          acc[header] = value;
           break;
       }
-      return obj;
+      return acc;
     }, {});
 
-    // Enforce consistency between 'completed' and 'completed_at'
-    if (normalizedObj.completed) {
-      // If completed is true but date is missing, set default date.
-      if (!normalizedObj.completed_at) {
-        normalizedObj.completed_at = now;
-      }
-    } else {
-      // If completed is false, date must be null.
-      normalizedObj.completed_at = null;
-    }
+    // Enforce consistency: `completed_at` is null if not completed,
+    // or its valid value (or the current time) if it is.
+    obj.completed_at = obj.completed ? obj.completed_at || now : null;
 
-    return normalizedObj;
+    return obj;
   });
 }
 
