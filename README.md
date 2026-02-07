@@ -91,13 +91,13 @@ This command first builds the code to make it compatible with Google Apps Script
 
 The API provides one main endpoint.
 
-- **Endpoint**: The deployment URL from `clasp`.
+- **Endpoint**: `https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec`
 - **Method**: `GET`
 - **Description**: Returns all items from the bucket list.
 
 **Example Request:**
 ```
-GET https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+GET https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec
 ```
 
 **Example Response:**
@@ -125,6 +125,16 @@ GET https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
   }
 ]
 ```
+
+## OpenAPI Specification
+
+This repository includes an OpenAPI 3.0 specification in `openapi.yaml` at the
+repository root. Use it to generate clients, validate requests, or document the
+API.
+
+- **Spec file**: `openapi.yaml`
+- **Server URL**: `https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec`
+- **JSONP support**: Add the optional `callback` query parameter when needed.
 
 ## Relationship with the Frontend
 

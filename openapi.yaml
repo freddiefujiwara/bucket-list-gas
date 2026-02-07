@@ -1,0 +1,114 @@
+openapi: 3.0.3
+info:
+  title: Bucket List API
+  version: "1.0.0"
+  description: |
+    A Google Apps Script-backed API that serves bucket list items from a Google
+    Sheet. Responses are returned as JSON text, with optional JSONP support.
+servers:
+  - url: https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw
+    description: Google Apps Script deployment URL
+paths:
+  /exec:
+    get:
+      summary: List bucket list items
+      description: |
+        Returns all bucket list items from the "list" sheet. If a `callback`
+        query parameter is provided and is a valid JavaScript function name,
+        the response is wrapped as JSONP.
+      parameters:
+        - name: callback
+          in: query
+          required: false
+          description: JSONP callback function name.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Bucket list items.
+          content:
+            text/plain:
+              schema:
+                $ref: "#/components/schemas/BucketListItems"
+              examples:
+                success:
+                  summary: JSON response
+                  value:
+                    - id: 1
+                      target_age: 40
+                      completed: true
+                      image_url: https://example.com/image.jpg
+                      category: Travel
+                      title: Visit Japan
+                      note: Explore Tokyo and Kyoto.
+                      completed_at: "2023-10-27T10:00:00.000Z"
+                    - id: 2
+                      target_age: 50
+                      completed: false
+                      image_url: ""
+                      category: Skill
+                      title: Learn to play the guitar
+                      note: ""
+                      completed_at: null
+        "404":
+          description: Sheet not found.
+          content:
+            text/plain:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    BucketListItems:
+      type: array
+      items:
+        $ref: "#/components/schemas/BucketListItem"
+    BucketListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+          description: Unique identifier from the sheet.
+        target_age:
+          type: integer
+          description: Normalized target age (rounded down to nearest decade).
+        completed:
+          type: boolean
+        image_url:
+          type: string
+          description: URL to an image, or empty string if invalid.
+        category:
+          type: string
+        title:
+          type: string
+        note:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when completed, null if not completed.
+      required:
+        - id
+        - target_age
+        - completed
+        - image_url
+        - category
+        - title
+        - note
+        - completed_at
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+          required:
+            - code
+            - message
+      required:
+        - error
