@@ -91,13 +91,13 @@ This command first builds the code to make it compatible with Google Apps Script
 
 The API provides one main endpoint.
 
-- **Endpoint**: `https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec`
+- **Endpoint**: `https://script.google.com/macros/s/<deployment-id>/exec`
 - **Method**: `GET`
 - **Description**: Returns all items from the bucket list.
 
 **Example Request:**
 ```
-GET https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec
+GET https://script.google.com/macros/s/<deployment-id>/exec
 ```
 
 **Example Response:**
@@ -133,7 +133,7 @@ repository root. Use it to generate clients, validate requests, or document the
 API.
 
 - **Spec file**: `openapi.yaml`
-- **Server URL**: `https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw/exec`
+- **Server URL**: `https://script.google.com/macros/s/<deployment-id>/exec`
 - **JSONP support**: Add the optional `callback` query parameter when needed.
 
 ## Relationship with the Frontend
