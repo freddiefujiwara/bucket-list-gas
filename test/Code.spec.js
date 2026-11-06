@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import * as testData from "./testData.js";
 
-let doGet, convertSheetDataToObjects, calculateAge;
+let doGet, doPost, convertSheetDataToObjects, calculateAge;
 
 // Mock implementation for Google Apps Script APIs
 // A factory function to create a new mock TextOutput object for each call,
@@ -29,50 +29,152 @@ const mockContentService = {
   },
 };
 
-const mockSheet = {
-  // Simulate a non-empty sheet
-  lastRow: testData.normalSheetData.length,
-  lastCol: testData.normalSheetData[0]?.length || 0,
-  data: JSON.parse(JSON.stringify(testData.normalSheetData)),
-
+// A sheet mock backed by a plain 2D array, supporting reads and writes.
+const makeSheet = (initialData) => ({
+  data: JSON.parse(JSON.stringify(initialData || [])),
   getLastRow: vi.fn(function () {
-    return this.lastRow;
+    return this.data.length;
   }),
   getLastColumn: vi.fn(function () {
-    return this.lastCol;
+    return this.data[0]?.length || 0;
   }),
-  getRange: vi.fn(function (r, c, numRows, numCols) {
-    // Basic implementation to return the data for the requested range
+  getRange: vi.fn(function (row, column, numRows, numCols) {
+    const self = this;
     return {
-      getValues: vi.fn(() => this.data),
+      getValues: vi.fn(() => {
+        if (numRows === undefined) {
+          return self.data.map((r) => [...r]);
+        }
+        return self.data
+          .slice(row - 1, row - 1 + numRows)
+          .map((r) => r.slice(column - 1, column - 1 + numCols));
+      }),
+      setValue: vi.fn((value) => {
+        while (self.data.length < row) {
+          self.data.push([]);
+        }
+        const target = self.data[row - 1];
+        while (target.length < column) {
+          target.push("");
+        }
+        target[column - 1] = value;
+      }),
     };
   }),
-};
+  getDataRange: vi.fn(function () {
+    const self = this;
+    return {
+      getValues: vi.fn(() => self.data.map((r) => [...r])),
+    };
+  }),
+  appendRow: vi.fn(function (row) {
+    this.data.push([...row]);
+  }),
+  deleteRow: vi.fn(function (row) {
+    this.data.splice(row - 1, 1);
+  }),
+});
+
+const mockSheet = makeSheet(testData.normalSheetData);
+let shareSheet = null;
 
 // Function to reset the mock sheet's data for different test scenarios
 const setMockSheetData = (data) => {
-  const deepCopy = JSON.parse(JSON.stringify(data));
-  mockSheet.data = deepCopy;
-  mockSheet.lastRow = deepCopy.length;
-  mockSheet.lastCol = deepCopy[0]?.length || 0;
+  mockSheet.data = JSON.parse(JSON.stringify(data));
 };
 
 const mockSpreadsheet = {
-  getSheetByName: vi.fn((name) => (name === "list" ? mockSheet : null)),
+  getSheetByName: vi.fn((name) => {
+    if (name === "list") {
+      return mockSheet;
+    }
+    if (name === "share_sessions") {
+      return shareSheet;
+    }
+    return null;
+  }),
+  insertSheet: vi.fn((name) => {
+    shareSheet = makeSheet([]);
+    return shareSheet;
+  }),
 };
 
 const mockSpreadsheetApp = {
   openById: vi.fn(() => mockSpreadsheet),
 };
 
+// Script properties: DEBUG mode by default so the pre-existing read tests
+// run unauthenticated; auth tests replace this map.
+let scriptProperties = { DEBUG: "true" };
+const mockPropertiesService = {
+  getScriptProperties: vi.fn(() => ({
+    getProperty: vi.fn((key) => (key in scriptProperties ? scriptProperties[key] : null)),
+  })),
+};
+
+let uuidCounter = 0;
+const mockUtilities = {
+  DigestAlgorithm: { SHA_256: "SHA_256" },
+  computeDigest: vi.fn((algorithm, value) =>
+    Array.from(String(value)).map((char) => char.charCodeAt(0))
+  ),
+  getUuid: vi.fn(
+    () =>
+      `00000000-0000-4000-8000-${String((uuidCounter += 1)).padStart(12, "0")}`
+  ),
+};
+
+const tokenInfoPayload = (email) => ({
+  iss: "https://accounts.google.com",
+  aud: "test-client-id",
+  exp: Math.floor(Date.now() / 1000) + 3600,
+  email_verified: "true",
+  email,
+  sub: "subject-1",
+});
+
+const mockUrlFetchApp = {
+  fetch: vi.fn((url) => {
+    const token = new URL(url).searchParams.get("id_token");
+    if (token === "valid-token") {
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify(tokenInfoPayload("zegenvs@gmail.com")),
+      };
+    }
+    if (token === "other-token") {
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify(tokenInfoPayload("someone@example.com")),
+      };
+    }
+    return {
+      getResponseCode: () => 400,
+      getContentText: () => "{}",
+    };
+  }),
+};
+
+const AUTH_PROPERTIES = {
+  AVAILABLE_GMAILS: "zegenvs@gmail.com",
+  GOOGLE_OAUTH_CLIENT_ID: "test-client-id",
+};
+
 // Stub the global objects before each test
 beforeEach(async () => {
   vi.resetModules();
+  scriptProperties = { DEBUG: "true" };
+  shareSheet = null;
+  uuidCounter = 0;
   vi.stubGlobal("SpreadsheetApp", mockSpreadsheetApp);
   vi.stubGlobal("ContentService", mockContentService);
+  vi.stubGlobal("PropertiesService", mockPropertiesService);
+  vi.stubGlobal("Utilities", mockUtilities);
+  vi.stubGlobal("UrlFetchApp", mockUrlFetchApp);
 
   const module = await import("../src/Code.js");
   doGet = module.doGet;
+  doPost = module.doPost;
   convertSheetDataToObjects = module.convertSheetDataToObjects;
   calculateAge = module.calculateAge;
 });
@@ -81,9 +183,15 @@ describe("doGet", () => {
   beforeEach(() => {
     // Reset mocks to their default state before each test
     vi.clearAllMocks();
-    mockSpreadsheet.getSheetByName.mockImplementation((name) =>
-      name === "list" ? mockSheet : null
-    );
+    mockSpreadsheet.getSheetByName.mockImplementation((name) => {
+      if (name === "list") {
+        return mockSheet;
+      }
+      if (name === "share_sessions") {
+        return shareSheet;
+      }
+      return null;
+    });
     setMockSheetData(testData.normalSheetData);
   });
 
@@ -428,5 +536,195 @@ describe("calculateAge", () => {
   it("should calculate age correctly the day after the birthday", () => {
     const nowDate = new Date("2025-09-03T00:00:00+09:00"); // 46th birthday was yesterday
     expect(calculateAge(birthDate, nowDate)).toBe(46);
+  });
+});
+
+describe("doGet authentication", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    scriptProperties = { ...AUTH_PROPERTIES };
+    setMockSheetData(testData.normalSheetData);
+  });
+
+  it("rejects requests without credentials", () => {
+    const result = doGet({ parameter: {} });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error.code).toBe(401);
+    expect(parsed.error.message).toBe("missing id token");
+  });
+
+  it("rejects an invalid id token", () => {
+    const result = doGet({ parameter: { id_token: "bogus" } });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error.code).toBe(401);
+    expect(parsed.error.message).toBe("token verification failed");
+  });
+
+  it("rejects a forbidden email with 403", () => {
+    const result = doGet({ parameter: { id_token: "other-token" } });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error.code).toBe(403);
+    expect(parsed.error.message).toBe("forbidden email");
+  });
+
+  it("accepts a valid id token", () => {
+    const result = doGet({ parameter: { id_token: "valid-token" } });
+    const parsed = JSON.parse(result.content);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(2);
+  });
+
+  it("accepts an id token from the Authorization header", () => {
+    const result = doGet({
+      parameter: {},
+      headers: { Authorization: "Bearer valid-token" },
+    });
+    const parsed = JSON.parse(result.content);
+    expect(Array.isArray(parsed)).toBe(true);
+  });
+
+  it("issues and revokes share sessions for the owner only", () => {
+    const denied = doGet({ parameter: { action: "issue_share" } });
+    expect(JSON.parse(denied.content).error.code).toBe(401);
+
+    const issued = doGet({
+      parameter: { action: "issue_share", id_token: "valid-token" },
+    });
+    const issuedBody = JSON.parse(issued.content);
+    expect(issuedBody.share_token).toBeTruthy();
+    expect(issuedBody.expires_at).toBeTruthy();
+
+    const viaShare = doGet({ parameter: { share_token: issuedBody.share_token } });
+    expect(JSON.parse(viaShare.content)).toHaveLength(2);
+
+    const revoked = doGet({
+      parameter: { action: "revoke_share", id_token: "valid-token" },
+    });
+    expect(JSON.parse(revoked.content)).toEqual({ revoked: true });
+
+    const afterRevoke = doGet({ parameter: { share_token: issuedBody.share_token } });
+    expect(JSON.parse(afterRevoke.content).error.code).toBe(401);
+  });
+
+  it("rejects an unknown share token", () => {
+    const result = doGet({ parameter: { share_token: "no-such-token" } });
+    expect(JSON.parse(result.content).error.code).toBe(401);
+  });
+});
+
+describe("doPost", () => {
+  const post = (body) =>
+    doPost({ postData: { contents: typeof body === "string" ? body : JSON.stringify(body) } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setMockSheetData(testData.normalSheetData);
+  });
+
+  it("rejects an invalid JSON body", () => {
+    const result = post("{not json");
+    expect(JSON.parse(result.content).error.code).toBe(400);
+  });
+
+  it("rejects an unknown action", () => {
+    const result = post({ action: "explode" });
+    expect(JSON.parse(result.content).error.code).toBe(400);
+  });
+
+  it("requires auth when DEBUG is off", () => {
+    scriptProperties = { ...AUTH_PROPERTIES };
+    const result = post({ action: "delete_item", id: 1 });
+    expect(JSON.parse(result.content).error.code).toBe(401);
+  });
+
+  it("updates editable fields of an existing item", () => {
+    const result = post({
+      action: "update_item",
+      item: { id: 1, title: "新しいタイトル", note: "更新メモ", next_action: "予約する" },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    const row = mockSheet.data[1];
+    expect(row[3]).toBe("新しいタイトル");
+    expect(row[4]).toBe("更新メモ");
+    // Management headers are appended automatically (after extra_field).
+    expect(mockSheet.data[0]).toContain("next_action");
+    expect(row[mockSheet.data[0].indexOf("next_action")]).toBe("予約する");
+  });
+
+  it("marks an item completed and stamps completed_at", () => {
+    const fakeNow = new Date("2026-11-07T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fakeNow);
+    const result = post({ action: "update_item", item: { id: 1, completed: true } });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    const row = mockSheet.data[1];
+    expect(row[6]).toBe(true);
+    expect(row[7]).toBe(fakeNow.toISOString());
+    vi.useRealTimers();
+  });
+
+  it("clears completed_at when an item is uncompleted", () => {
+    const result = post({ action: "update_item", item: { id: 2, completed: false } });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 2 });
+    const row = mockSheet.data[2];
+    expect(row[6]).toBe(false);
+    expect(row[7]).toBe("");
+  });
+
+  it("returns 404 when updating a missing item", () => {
+    const result = post({ action: "update_item", item: { id: 999, title: "x" } });
+    expect(JSON.parse(result.content).error.code).toBe(404);
+  });
+
+  it("adds an item with the next id", () => {
+    const result = post({
+      action: "add_item",
+      item: { title: "追加アイテム", category: "場所・旅行", target_age: 50 },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 3 });
+    const row = mockSheet.data[3];
+    expect(row[0]).toBe(3);
+    expect(row[3]).toBe("追加アイテム");
+    expect(row[6]).toBe(false);
+  });
+
+  it("deletes an item", () => {
+    const result = post({ action: "delete_item", id: 1 });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    expect(mockSheet.data).toHaveLength(2);
+    expect(mockSheet.data[1][0]).toBe(2);
+  });
+
+  it("returns 404 when deleting a missing item", () => {
+    const result = post({ action: "delete_item", id: 999 });
+    expect(JSON.parse(result.content).error.code).toBe(404);
+  });
+
+  it("writes through a share token when DEBUG is off", () => {
+    scriptProperties = { ...AUTH_PROPERTIES };
+    const issued = doGet({
+      parameter: { action: "issue_share", id_token: "valid-token" },
+    });
+    const token = JSON.parse(issued.content).share_token;
+    const result = post({
+      action: "update_item",
+      share_token: token,
+      item: { id: 1, progress: "半分進んだ" },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    const row = mockSheet.data[1];
+    expect(row[mockSheet.data[0].indexOf("progress")]).toBe("半分進んだ");
+  });
+});
+
+describe("convertSheetDataToObjects management fields", () => {
+  it("parses next_action and progress as trimmed strings", () => {
+    const data = [
+      [...testData.headers, "next_action", "progress"],
+      [1, "C", 50, "T", "N", "", false, "", "x", "  予約する  ", "  途中  "],
+    ];
+    const result = convertSheetDataToObjects(data);
+    expect(result[0].next_action).toBe("予約する");
+    expect(result[0].progress).toBe("途中");
   });
 });

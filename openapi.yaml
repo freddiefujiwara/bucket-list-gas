@@ -5,6 +5,9 @@ info:
   description: |
     A Google Apps Script-backed API that serves bucket list items from a Google
     Sheet. Responses are returned as JSON text, with optional JSONP support.
+    All endpoints require authentication: a Google ID token (owner) or a
+    temporary share token (owner-equivalent, 30 days), issued via the
+    issue_share action.
 servers:
   - url: https://script.google.com/macros/s/AKfycbwUF0Lt3OG5kE0IqTyrkciEcUFIXZULI7aM-xJtR_4nrvqOSlIOVKADtFolAvSwFko6Vw
     description: Google Apps Script deployment URL
@@ -21,6 +24,24 @@ paths:
           in: query
           required: false
           description: JSONP callback function name.
+          schema:
+            type: string
+        - name: id_token
+          in: query
+          required: false
+          description: Google ID token of the owner.
+          schema:
+            type: string
+        - name: share_token
+          in: query
+          required: false
+          description: Temporary share token from issue_share.
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          description: issue_share or revoke_share (owner ID token required).
           schema:
             type: string
       responses:
@@ -56,6 +77,45 @@ paths:
             text/plain:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+    post:
+      summary: Manage bucket list items
+      description: |
+        JSON body with an action and credentials (id_token or share_token in
+        the body). Actions: update_item (item object with id and the fields
+        to change), add_item (item object without id), delete_item (id).
+        Completing an item stamps completed_at automatically; uncompleting
+        clears it. The management columns next_action and progress are added
+        to the sheet automatically on first write.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [update_item, add_item, delete_item]
+                id_token:
+                  type: string
+                share_token:
+                  type: string
+                id:
+                  type: integer
+                item:
+                  $ref: "#/components/schemas/BucketListItemInput"
+      responses:
+        "200":
+          description: The operation succeeded.
+          content:
+            text/plain:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  id:
+                    type: integer
 components:
   schemas:
     BucketListItems:
@@ -83,6 +143,12 @@ components:
           type: string
         note:
           type: string
+        next_action:
+          type: string
+          description: Management field - the next concrete step.
+        progress:
+          type: string
+          description: Management field - free-form progress memo.
         completed_at:
           type: string
           format: date-time
@@ -97,6 +163,31 @@ components:
         - title
         - note
         - completed_at
+    BucketListItemInput:
+      type: object
+      properties:
+        id:
+          type: integer
+        target_age:
+          type: integer
+        completed:
+          type: boolean
+        image_url:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        note:
+          type: string
+        next_action:
+          type: string
+        progress:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
     ErrorResponse:
       type: object
       properties:
