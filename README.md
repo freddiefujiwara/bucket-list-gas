@@ -10,6 +10,15 @@ This API is built with Google Apps Script and uses a Google Sheet as its databas
 - **Data Normalization**: Cleans up and formats the data. For example, it trims text, validates URLs, and sets default values.
 - **Dynamic Age Calculation**: Automatically calculates and normalizes the `target_age` field based on a specific birth date.
 - **JSONP Support**: Includes a `callback` parameter for JSONP requests to work around cross-domain issues if needed.
+- **Authentication**: All requests require a Google ID token (owner) or a temporary share token. Share sessions are issued/revoked by the owner (GET `action=issue_share` / `action=revoke_share` with an ID token) and grant owner-equivalent access for 30 days.
+- **Management Writes**: POST actions `update_item`, `add_item`, and `delete_item` edit the sheet. The management columns `next_action` and `progress` are added to the sheet automatically on first write.
+
+## Script Properties
+
+- `AVAILABLE_GMAILS`: comma-separated emails allowed to use the API.
+- `GOOGLE_OAUTH_CLIENT_ID`: OAuth client ID used to verify ID tokens.
+- `SPREADSHEET_ID` (optional): overrides the built-in spreadsheet ID (used by the staging project).
+- `DEBUG` (optional): when `true`, authentication is skipped. Never set this in production.
 
 ## Tech Stack
 
