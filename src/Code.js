@@ -290,15 +290,17 @@ const SHARE_HEADERS = [
   "last_accessed_at",
 ];
 
-const getShareSheet_ = () => {
+const getSessionSheet_ = (name) => {
   const spreadsheet = getSpreadsheet_();
-  let sheet = spreadsheet.getSheetByName(SHARE_SHEET_NAME);
+  let sheet = spreadsheet.getSheetByName(name);
   if (!sheet) {
-    sheet = spreadsheet.insertSheet(SHARE_SHEET_NAME);
+    sheet = spreadsheet.insertSheet(name);
     sheet.appendRow(SHARE_HEADERS);
   }
   return sheet;
 };
+
+const getShareSheet_ = () => getSessionSheet_(SHARE_SHEET_NAME);
 
 const hashShareToken_ = (token) =>
   Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token))
@@ -306,11 +308,13 @@ const hashShareToken_ = (token) =>
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 
-const readShareRows_ = () => {
-  const sheet = getShareSheet_();
+const readSessionRows_ = (name) => {
+  const sheet = getSessionSheet_(name);
   const values = sheet.getDataRange().getValues();
   return { sheet, values };
 };
+
+const readShareRows_ = () => readSessionRows_(SHARE_SHEET_NAME);
 
 const shareCellIso_ = (value) => {
   if (!value) {
@@ -322,8 +326,8 @@ const shareCellIso_ = (value) => {
   return String(value);
 };
 
-const revokeActiveShareSessions_ = (nowIso) => {
-  const { sheet, values } = readShareRows_();
+const revokeActiveSessions_ = (name, nowIso) => {
+  const { sheet, values } = readSessionRows_(name);
   values.forEach((row, index) => {
     if (index === 0) {
       return;
@@ -336,32 +340,37 @@ const revokeActiveShareSessions_ = (nowIso) => {
   });
 };
 
-const issueShareSession_ = () => {
+const revokeActiveShareSessions_ = (nowIso) =>
+  revokeActiveSessions_(SHARE_SHEET_NAME, nowIso);
+
+const issueSession_ = (name, tokenKey) => {
   const now = new Date();
   const nowIso = now.toISOString();
   const expiresIso = new Date(now.getTime() + SHARE_TTL_SECONDS * 1000).toISOString();
-  revokeActiveShareSessions_(nowIso);
+  revokeActiveSessions_(name, nowIso);
   const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
-  getShareSheet_().appendRow([hashShareToken_(token), nowIso, expiresIso, "", 0, ""]);
+  getSessionSheet_(name).appendRow([hashShareToken_(token), nowIso, expiresIso, "", 0, ""]);
   return {
-    share_token: token,
+    [tokenKey]: token,
     issued_at: nowIso,
     expires_at: expiresIso,
     ttl_seconds: SHARE_TTL_SECONDS,
   };
 };
 
+const issueShareSession_ = () => issueSession_(SHARE_SHEET_NAME, "share_token");
+
 const revokeShareSession_ = () => {
   revokeActiveShareSessions_(new Date().toISOString());
   return { revoked: true };
 };
 
-const validateShareToken_ = (token) => {
+const validateSessionToken_ = (name, token) => {
   if (!token) {
     return null;
   }
   const hash = hashShareToken_(token);
-  const { sheet, values } = readShareRows_();
+  const { sheet, values } = readSessionRows_(name);
   const nowIso = new Date().toISOString();
   for (let index = 1; index < values.length; index += 1) {
     const row = values[index];
@@ -382,14 +391,59 @@ const validateShareToken_ = (token) => {
   return null;
 };
 
+const validateShareToken_ = (token) => validateSessionToken_(SHARE_SHEET_NAME, token);
+
+// --- Owner sessions (long-lived sign-in) ---
+// Google ID tokens expire after about an hour, which used to drop the
+// owner back at the sign-in gate. After a Google sign-in the frontend
+// exchanges the ID token for one of these 30-day owner sessions (same
+// storage scheme as share sessions, separate sheet) and uses it for
+// all later calls. Issuing a new one revokes the previous ones, and
+// the frontend revokes its session on logout.
+const OWNER_SHEET_NAME = "owner_sessions";
+
+const issueOwnerSession_ = () => issueSession_(OWNER_SHEET_NAME, "session_token");
+
+const validateOwnerToken_ = (token) => validateSessionToken_(OWNER_SHEET_NAME, token);
+
+const revokeOwnerSession_ = (token) => {
+  if (token) {
+    const hash = hashShareToken_(token);
+    const { sheet, values } = readSessionRows_(OWNER_SHEET_NAME);
+    const nowIso = new Date().toISOString();
+    values.forEach((row, index) => {
+      if (index > 0 && row[0] === hash && !shareCellIso_(row[3])) {
+        sheet.getRange(index + 1, 4).setValue(nowIso);
+      }
+    });
+  }
+  return { revoked: true };
+};
+
+// Owner proof for owner-only actions: a valid Google ID token, or a
+// live owner session token (the post-sign-in steady state).
+const requireOwnerAuth_ = (e, params) => {
+  if (params.session_token && validateOwnerToken_(params.session_token)) {
+    return;
+  }
+  verifyGoogleIdTokenOrThrow_(extractIdToken_(e));
+};
+
 /**
  * Authorizes a request. Returns a share session object (possibly empty) on
  * success and throws an Error on failure. Share tokens are owner-equivalent.
- * `credentials` is { idToken, shareToken }.
+ * `credentials` is { idToken, shareToken, sessionToken }.
  */
-const authorizeOrThrow_ = ({ idToken, shareToken }) => {
+const authorizeOrThrow_ = ({ idToken, shareToken, sessionToken }) => {
   if (isDebugMode_()) {
     return {};
+  }
+  if (sessionToken) {
+    const session = validateOwnerToken_(sessionToken);
+    if (!session) {
+      throw new Error("session expired or invalid");
+    }
+    return session;
   }
   if (shareToken) {
     const session = validateShareToken_(shareToken);
@@ -575,9 +629,23 @@ const deleteItem_ = (sheet, rawId) => {
 export function doGet(e) {
   const params = (e && e.parameter) || {};
 
-  if (params.action === "issue_share" || params.action === "revoke_share") {
+  // Exchanging a Google ID token for a 30-day owner session is how a
+  // sign-in starts; revoking the session is how it ends (logout).
+  if (params.action === "exchange_session") {
     try {
       verifyGoogleIdTokenOrThrow_(extractIdToken_(e));
+    } catch (error) {
+      return authErrorResponse_(error);
+    }
+    return createJsonResponse(issueOwnerSession_());
+  }
+  if (params.action === "revoke_session") {
+    return createJsonResponse(revokeOwnerSession_(params.session_token || ""));
+  }
+
+  if (params.action === "issue_share" || params.action === "revoke_share") {
+    try {
+      requireOwnerAuth_(e, params);
     } catch (error) {
       return authErrorResponse_(error);
     }
@@ -590,6 +658,7 @@ export function doGet(e) {
     authorizeOrThrow_({
       idToken: extractIdToken_(e),
       shareToken: params.share_token || "",
+      sessionToken: params.session_token || "",
     });
   } catch (error) {
     return authErrorResponse_(error);
@@ -637,6 +706,7 @@ export function doPost(e) {
     authorizeOrThrow_({
       idToken: body.id_token || extractIdToken_(e),
       shareToken: body.share_token || "",
+      sessionToken: body.session_token || "",
     });
   } catch (error) {
     return authErrorResponse_(error);
