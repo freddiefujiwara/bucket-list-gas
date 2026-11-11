@@ -612,6 +612,91 @@ describe("doGet authentication", () => {
   });
 });
 
+describe("doGet owner sessions", () => {
+  let ownerSheet = null;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    scriptProperties = { ...AUTH_PROPERTIES };
+    setMockSheetData(testData.normalSheetData);
+    ownerSheet = null;
+    mockSpreadsheet.getSheetByName.mockImplementation((name) => {
+      if (name === "list") return mockSheet;
+      if (name === "share_sessions") return shareSheet;
+      if (name === "owner_sessions") return ownerSheet;
+      return null;
+    });
+    mockSpreadsheet.insertSheet.mockImplementation((name) => {
+      if (name === "owner_sessions") {
+        ownerSheet = makeSheet([]);
+        return ownerSheet;
+      }
+      shareSheet = makeSheet([]);
+      return shareSheet;
+    });
+  });
+
+  const exchange = () =>
+    JSON.parse(
+      doGet({ parameter: { action: "exchange_session", id_token: "valid-token" } }).content
+    );
+
+  it("exchanges a Google ID token for a 30-day owner session", () => {
+    const before = Date.now();
+    const issued = exchange();
+    expect(issued.session_token).toBeTruthy();
+    expect(Date.parse(issued.expires_at) - before).toBeGreaterThan(29 * 24 * 60 * 60 * 1000);
+    expect(ownerSheet.data[1][0]).not.toBe(issued.session_token);
+
+    const viaSession = doGet({ parameter: { session_token: issued.session_token } });
+    expect(JSON.parse(viaSession.content)).toHaveLength(2);
+  });
+
+  it("rejects the exchange without a valid ID token", () => {
+    const result = doGet({ parameter: { action: "exchange_session" } });
+    expect(JSON.parse(result.content).error.code).toBe(401);
+  });
+
+  it("rejects an unknown session token", () => {
+    const result = doGet({ parameter: { session_token: "no-such-token" } });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error.code).toBe(401);
+    expect(parsed.error.message).toBe("session expired or invalid");
+  });
+
+  it("revokes the session on revoke_session (logout)", () => {
+    const issued = exchange();
+    const revoked = doGet({
+      parameter: { action: "revoke_session", session_token: issued.session_token },
+    });
+    expect(JSON.parse(revoked.content)).toEqual({ revoked: true });
+    const after = doGet({ parameter: { session_token: issued.session_token } });
+    expect(JSON.parse(after.content).error.code).toBe(401);
+  });
+
+  it("lets an owner session issue share links", () => {
+    const issued = exchange();
+    const share = doGet({
+      parameter: { action: "issue_share", session_token: issued.session_token },
+    });
+    expect(JSON.parse(share.content).share_token).toBeTruthy();
+  });
+
+  it("lets an owner session write via doPost", () => {
+    const issued = exchange();
+    const result = doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: "update_item",
+          session_token: issued.session_token,
+          item: { id: 1, title: "セッション経由の更新" },
+        }),
+      },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+  });
+});
+
 describe("doPost", () => {
   const post = (body) =>
     doPost({ postData: { contents: typeof body === "string" ? body : JSON.stringify(body) } });
