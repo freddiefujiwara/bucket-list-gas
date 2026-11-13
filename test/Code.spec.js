@@ -665,6 +665,19 @@ describe("doGet owner sessions", () => {
     expect(JSON.parse(viaSession.content)).toHaveLength(2);
   });
 
+  it("keeps the previous owner session valid when issuing a new one", () => {
+    const first = exchange();
+    const second = exchange();
+    expect(second.session_token).toBeTruthy();
+    expect(second.session_token).not.toBe(first.session_token);
+
+    const viaFirst = doGet({ parameter: { session_token: first.session_token } });
+    expect(JSON.parse(viaFirst.content)).toHaveLength(2);
+
+    const viaSecond = doGet({ parameter: { session_token: second.session_token } });
+    expect(JSON.parse(viaSecond.content)).toHaveLength(2);
+  });
+
   it("rejects the exchange without a valid ID token", () => {
     const result = doGet({ parameter: { action: "exchange_session" } });
     expect(JSON.parse(result.content).error.code).toBe(401);
