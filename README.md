@@ -18,7 +18,6 @@ This API is built with Google Apps Script and uses a Google Sheet as its databas
 - `AVAILABLE_GMAILS`: comma-separated emails allowed to use the API.
 - `GOOGLE_OAUTH_CLIENT_ID`: OAuth client ID used to verify ID tokens.
 - `SPREADSHEET_ID` (optional): overrides the built-in spreadsheet ID (used by the staging project).
-- `DEBUG` (optional): when `true`, authentication is skipped. Never set this in production.
 
 ## Tech Stack
 
