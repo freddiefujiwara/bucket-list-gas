@@ -206,13 +206,10 @@ const getScriptProperty_ = (key) => {
 const getSpreadsheet_ = () =>
   SpreadsheetApp.openById(getScriptProperty_("SPREADSHEET_ID") || SPREADSHEET_ID);
 
-const isDebugMode_ = () => getScriptProperty_("DEBUG") === "true";
-
 // --- Authentication (same scheme as health-gas / asset-gas) ---
 // Script Properties required:
 //   AVAILABLE_GMAILS: comma-separated emails allowed to use the app
 //   GOOGLE_OAUTH_CLIENT_ID: OAuth client ID used to verify ID tokens
-//   DEBUG: when "true", authentication is skipped (for local checks only)
 
 const extractIdToken_ = (e) => {
   const headers = (e && e.headers) || {};
@@ -339,13 +336,11 @@ const revokeActiveSessions_ = (name, nowIso) => {
 const revokeActiveShareSessions_ = (nowIso) =>
   revokeActiveSessions_(SHARE_SHEET_NAME, nowIso);
 
-const issueSession_ = (name, tokenKey, { revokePrevious = true } = {}) => {
+const issueSession_ = (name, tokenKey) => {
   const now = new Date();
   const nowIso = now.toISOString();
   const expiresIso = new Date(now.getTime() + SHARE_TTL_SECONDS * 1000).toISOString();
-  if (revokePrevious) {
-    revokeActiveSessions_(name, nowIso);
-  }
+  revokeActiveSessions_(name, nowIso);
   const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
   getSessionSheet_(name).appendRow([hashShareToken_(token), nowIso, expiresIso, "", 0, ""]);
   return {
@@ -396,13 +391,11 @@ const validateShareToken_ = (token) => validateSessionToken_(SHARE_SHEET_NAME, t
 // owner back at the sign-in gate. After a Google sign-in the frontend
 // exchanges the ID token for one of these 30-day owner sessions (same
 // storage scheme as share sessions, separate sheet) and uses it for
-// all later calls. Owner sessions coexist across multiple devices:
-// issuing a new one does not revoke the previous ones, and the
-// frontend revokes its own session on logout.
+// all later calls. Issuing a new one revokes the previous ones, and
+// the frontend revokes its session on logout.
 const OWNER_SHEET_NAME = "owner_sessions";
 
-const issueOwnerSession_ = () =>
-  issueSession_(OWNER_SHEET_NAME, "session_token", { revokePrevious: false });
+const issueOwnerSession_ = () => issueSession_(OWNER_SHEET_NAME, "session_token");
 
 const validateOwnerToken_ = (token) => validateSessionToken_(OWNER_SHEET_NAME, token);
 
@@ -435,9 +428,6 @@ const requireOwnerAuth_ = (e, params) => {
  * `credentials` is { idToken, shareToken, sessionToken }.
  */
 const authorizeOrThrow_ = ({ idToken, shareToken, sessionToken }) => {
-  if (isDebugMode_()) {
-    return {};
-  }
   if (sessionToken) {
     const session = validateOwnerToken_(sessionToken);
     if (!session) {

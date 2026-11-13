@@ -103,9 +103,10 @@ const mockSpreadsheetApp = {
   openById: vi.fn(() => mockSpreadsheet),
 };
 
-// Script properties: DEBUG mode by default so the pre-existing read tests
-// run unauthenticated; auth tests replace this map.
-let scriptProperties = { DEBUG: "true" };
+// Script properties: the top-level beforeEach installs AUTH_PROPERTIES by
+// default, so every test runs with authentication on; tests present
+// "valid-token" as the ID token credential.
+let scriptProperties = {};
 const mockPropertiesService = {
   getScriptProperties: vi.fn(() => ({
     getProperty: vi.fn((key) => (key in scriptProperties ? scriptProperties[key] : null)),
@@ -163,7 +164,7 @@ const AUTH_PROPERTIES = {
 // Stub the global objects before each test
 beforeEach(async () => {
   vi.resetModules();
-  scriptProperties = { DEBUG: "true" };
+  scriptProperties = { ...AUTH_PROPERTIES };
   shareSheet = null;
   uuidCounter = 0;
   vi.stubGlobal("SpreadsheetApp", mockSpreadsheetApp);
@@ -196,7 +197,7 @@ describe("doGet", () => {
   });
 
   it("should return JSON with TEXT MIME type when no callback is provided", () => {
-    const e = { parameter: {} };
+    const e = { parameter: { id_token: "valid-token" } };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
 
@@ -207,7 +208,7 @@ describe("doGet", () => {
 
   it("should return JSONP with a valid callback", () => {
     const callbackName = "myCallback";
-    const e = { parameter: { callback: callbackName } };
+    const e = { parameter: { callback: callbackName, id_token: "valid-token" } };
     const result = doGet(e);
 
     expect(result.content.startsWith(`${callbackName}(`)).toBe(true);
@@ -217,7 +218,7 @@ describe("doGet", () => {
 
   it("should fall back to JSON with an invalid callback", () => {
     const invalidCallback = "invalid-callback;";
-    const e = { parameter: { callback: invalidCallback } };
+    const e = { parameter: { callback: invalidCallback, id_token: "valid-token" } };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
 
@@ -227,7 +228,7 @@ describe("doGet", () => {
 
   it("should return a 404 error if the sheet is not found", () => {
     mockSpreadsheet.getSheetByName.mockReturnValue(null);
-    const e = { parameter: {} };
+    const e = { parameter: { id_token: "valid-token" } };
     const result = doGet(e);
     const parsedError = JSON.parse(result.content);
 
@@ -236,9 +237,9 @@ describe("doGet", () => {
     expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
   });
 
-  it("should run without error when `e` is undefined", () => {
-    // Simulates running from the Apps Script editor
-    const result = doGet(undefined);
+  it("should run without error when called with a minimal event", () => {
+    // The smallest event object a real authenticated HTTP request produces
+    const result = doGet({ parameter: { id_token: "valid-token" } });
     const parsedResult = JSON.parse(result.content);
     expect(parsedResult).toHaveLength(2);
     expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
@@ -246,7 +247,7 @@ describe("doGet", () => {
 
   it("should handle an empty sheet (no data) and return an empty array", () => {
     setMockSheetData([]);
-    const e = { parameter: {} };
+    const e = { parameter: { id_token: "valid-token" } };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
     expect(parsedResult).toEqual([]);
@@ -254,7 +255,7 @@ describe("doGet", () => {
 
   it("should handle a sheet with only headers and return an empty array", () => {
     setMockSheetData([testData.headers]);
-    const e = { parameter: {} };
+    const e = { parameter: { id_token: "valid-token" } };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
     expect(parsedResult).toEqual([]);
@@ -553,6 +554,18 @@ describe("doGet authentication", () => {
     expect(parsed.error.message).toBe("missing id token");
   });
 
+  it("does not skip auth when the DEBUG property is true", () => {
+    scriptProperties = { ...AUTH_PROPERTIES, DEBUG: "true" };
+    const read = doGet({ parameter: {} });
+    expect(JSON.parse(read.content).error.code).toBe(401);
+    const write = doPost({
+      postData: { contents: JSON.stringify({ action: "delete_item", id: 1 }) },
+    });
+    expect(JSON.parse(write.content).error.code).toBe(401);
+    // The unauthenticated write must not have deleted anything.
+    expect(mockSheet.data).toHaveLength(3);
+  });
+
   it("rejects an invalid id token", () => {
     const result = doGet({ parameter: { id_token: "bogus" } });
     const parsed = JSON.parse(result.content);
@@ -652,19 +665,6 @@ describe("doGet owner sessions", () => {
     expect(JSON.parse(viaSession.content)).toHaveLength(2);
   });
 
-  it("keeps the previous owner session valid when issuing a new one", () => {
-    const first = exchange();
-    const second = exchange();
-    expect(second.session_token).toBeTruthy();
-    expect(second.session_token).not.toBe(first.session_token);
-
-    const viaFirst = doGet({ parameter: { session_token: first.session_token } });
-    expect(JSON.parse(viaFirst.content)).toHaveLength(2);
-
-    const viaSecond = doGet({ parameter: { session_token: second.session_token } });
-    expect(JSON.parse(viaSecond.content)).toHaveLength(2);
-  });
-
   it("rejects the exchange without a valid ID token", () => {
     const result = doGet({ parameter: { action: "exchange_session" } });
     expect(JSON.parse(result.content).error.code).toBe(401);
@@ -725,12 +725,11 @@ describe("doPost", () => {
   });
 
   it("rejects an unknown action", () => {
-    const result = post({ action: "explode" });
+    const result = post({ action: "explode", id_token: "valid-token" });
     expect(JSON.parse(result.content).error.code).toBe(400);
   });
 
-  it("requires auth when DEBUG is off", () => {
-    scriptProperties = { ...AUTH_PROPERTIES };
+  it("requires auth", () => {
     const result = post({ action: "delete_item", id: 1 });
     expect(JSON.parse(result.content).error.code).toBe(401);
   });
@@ -738,6 +737,7 @@ describe("doPost", () => {
   it("updates editable fields of an existing item", () => {
     const result = post({
       action: "update_item",
+      id_token: "valid-token",
       item: { id: 1, title: "新しいタイトル", note: "更新メモ", next_action: "予約する" },
     });
     expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
@@ -753,7 +753,7 @@ describe("doPost", () => {
     const fakeNow = new Date("2026-11-07T00:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(fakeNow);
-    const result = post({ action: "update_item", item: { id: 1, completed: true } });
+    const result = post({ action: "update_item", id_token: "valid-token", item: { id: 1, completed: true } });
     expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
     const row = mockSheet.data[1];
     expect(row[6]).toBe(true);
@@ -762,7 +762,7 @@ describe("doPost", () => {
   });
 
   it("clears completed_at when an item is uncompleted", () => {
-    const result = post({ action: "update_item", item: { id: 2, completed: false } });
+    const result = post({ action: "update_item", id_token: "valid-token", item: { id: 2, completed: false } });
     expect(JSON.parse(result.content)).toEqual({ ok: true, id: 2 });
     const row = mockSheet.data[2];
     expect(row[6]).toBe(false);
@@ -770,13 +770,14 @@ describe("doPost", () => {
   });
 
   it("returns 404 when updating a missing item", () => {
-    const result = post({ action: "update_item", item: { id: 999, title: "x" } });
+    const result = post({ action: "update_item", id_token: "valid-token", item: { id: 999, title: "x" } });
     expect(JSON.parse(result.content).error.code).toBe(404);
   });
 
   it("adds an item with the next id", () => {
     const result = post({
       action: "add_item",
+      id_token: "valid-token",
       item: { title: "追加アイテム", category: "場所・旅行", target_age: 50 },
     });
     expect(JSON.parse(result.content)).toEqual({ ok: true, id: 3 });
@@ -787,19 +788,18 @@ describe("doPost", () => {
   });
 
   it("deletes an item", () => {
-    const result = post({ action: "delete_item", id: 1 });
+    const result = post({ action: "delete_item", id_token: "valid-token", id: 1 });
     expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
     expect(mockSheet.data).toHaveLength(2);
     expect(mockSheet.data[1][0]).toBe(2);
   });
 
   it("returns 404 when deleting a missing item", () => {
-    const result = post({ action: "delete_item", id: 999 });
+    const result = post({ action: "delete_item", id_token: "valid-token", id: 999 });
     expect(JSON.parse(result.content).error.code).toBe(404);
   });
 
-  it("writes through a share token when DEBUG is off", () => {
-    scriptProperties = { ...AUTH_PROPERTIES };
+  it("writes through a share token", () => {
     const issued = doGet({
       parameter: { action: "issue_share", id_token: "valid-token" },
     });
