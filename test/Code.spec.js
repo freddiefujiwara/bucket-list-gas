@@ -227,7 +227,14 @@ const makeMockDoc = () => {
       this.paragraphs = [];
     }),
     appendParagraph: vi.fn(function (text) {
-      const paragraph = makeMockParagraph(text || "");
+      // The real Body.appendParagraph requires a String (or Paragraph)
+      // argument; calling it with no argument throws.
+      if (typeof text !== "string") {
+        throw new Error(
+          "The parameters () don't match the method signature for DocumentApp.Body.appendParagraph."
+        );
+      }
+      const paragraph = makeMockParagraph(text);
       this.paragraphs.push(paragraph);
       return paragraph;
     }),
