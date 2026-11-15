@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import * as testData from "./testData.js";
 
-let doGet, doPost, convertSheetDataToObjects, calculateAge;
+let doGet,
+  doPost,
+  convertSheetDataToObjects,
+  calculateAge,
+  generateArticle,
+  syncArticleFromSheet,
+  buildArticleBlocks;
 
 // Mock implementation for Google Apps Script APIs
 // A factory function to create a new mock TextOutput object for each call,
@@ -110,6 +116,9 @@ let scriptProperties = {};
 const mockPropertiesService = {
   getScriptProperties: vi.fn(() => ({
     getProperty: vi.fn((key) => (key in scriptProperties ? scriptProperties[key] : null)),
+    setProperty: vi.fn((key, value) => {
+      scriptProperties[key] = String(value);
+    }),
   })),
 };
 
@@ -119,6 +128,22 @@ const mockUtilities = {
   computeDigest: vi.fn((algorithm, value) =>
     Array.from(String(value)).map((char) => char.charCodeAt(0))
   ),
+  formatDate: vi.fn((date, timeZone, format) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(date);
+    const get = (type) => parts.find((part) => part.type === type).value;
+    if (format === "yyyy年M月d日") {
+      return `${get("year")}年${get("month")}月${get("day")}日`;
+    }
+    if (format === "yyyy年M月") {
+      return `${get("year")}年${get("month")}月`;
+    }
+    throw new Error(`unsupported format in mock: ${format}`);
+  }),
   getUuid: vi.fn(
     () =>
       `00000000-0000-4000-8000-${String((uuidCounter += 1)).padStart(12, "0")}`
@@ -156,6 +181,79 @@ const mockUrlFetchApp = {
   }),
 };
 
+// Document mock that records every appended paragraph so article
+// generation can be asserted structurally.
+const makeMockParagraph = (text) => ({
+  text,
+  heading: null,
+  bold: null,
+  images: [],
+  setHeading: vi.fn(function (heading) {
+    this.heading = heading;
+    return this;
+  }),
+  editAsText: vi.fn(function () {
+    const self = this;
+    return {
+      setBold: vi.fn((bold) => {
+        self.bold = bold;
+      }),
+    };
+  }),
+  appendInlineImage: vi.fn(function (blob) {
+    const image = {
+      blob,
+      width: null,
+      height: null,
+      setWidth: vi.fn(function (width) {
+        this.width = width;
+        return this;
+      }),
+      setHeight: vi.fn(function (height) {
+        this.height = height;
+        return this;
+      }),
+    };
+    this.images.push(image);
+    return image;
+  }),
+});
+
+let mockDoc = null;
+const makeMockDoc = () => {
+  const body = {
+    paragraphs: [],
+    clear: vi.fn(function () {
+      this.paragraphs = [];
+    }),
+    appendParagraph: vi.fn(function (text) {
+      const paragraph = makeMockParagraph(text || "");
+      this.paragraphs.push(paragraph);
+      return paragraph;
+    }),
+  };
+  return { body, getBody: vi.fn(() => body), saveAndClose: vi.fn() };
+};
+
+const mockDocumentApp = {
+  ParagraphHeading: { TITLE: "TITLE", HEADING_2: "HEADING_2", NORMAL: "NORMAL" },
+  openById: vi.fn(() => mockDoc),
+};
+
+let projectTriggers = [];
+const mockScriptApp = {
+  getProjectTriggers: vi.fn(() => [...projectTriggers]),
+  newTrigger: vi.fn((handler) => ({
+    timeBased: () => ({
+      everyHours: () => ({
+        create: () => {
+          projectTriggers.push({ getHandlerFunction: () => handler });
+        },
+      }),
+    }),
+  })),
+};
+
 const AUTH_PROPERTIES = {
   AVAILABLE_GMAILS: "zegenvs@gmail.com",
   GOOGLE_OAUTH_CLIENT_ID: "test-client-id",
@@ -167,17 +265,24 @@ beforeEach(async () => {
   scriptProperties = { ...AUTH_PROPERTIES };
   shareSheet = null;
   uuidCounter = 0;
+  mockDoc = makeMockDoc();
+  projectTriggers = [];
   vi.stubGlobal("SpreadsheetApp", mockSpreadsheetApp);
   vi.stubGlobal("ContentService", mockContentService);
   vi.stubGlobal("PropertiesService", mockPropertiesService);
   vi.stubGlobal("Utilities", mockUtilities);
   vi.stubGlobal("UrlFetchApp", mockUrlFetchApp);
+  vi.stubGlobal("DocumentApp", mockDocumentApp);
+  vi.stubGlobal("ScriptApp", mockScriptApp);
 
   const module = await import("../src/Code.js");
   doGet = module.doGet;
   doPost = module.doPost;
   convertSheetDataToObjects = module.convertSheetDataToObjects;
   calculateAge = module.calculateAge;
+  generateArticle = module.generateArticle;
+  syncArticleFromSheet = module.syncArticleFromSheet;
+  buildArticleBlocks = module.buildArticleBlocks;
 });
 
 describe("doGet", () => {
@@ -880,5 +985,164 @@ describe("convertSheetDataToObjects management fields", () => {
     ];
     const result = convertSheetDataToObjects(data);
     expect(result[0].status).toBe("in_progress");
+  });
+
+  it("parses article_order as an integer or null", () => {
+    const data = [
+      [...testData.headers, "article_order"],
+      [1, "C", 50, "T", "N", "", false, "", "x", 12],
+      [2, "C", 50, "T", "N", "", false, "", "x", ""],
+    ];
+    const result = convertSheetDataToObjects(data);
+    expect(result[0].article_order).toBe(12);
+    expect(result[1].article_order).toBeNull();
+  });
+});
+
+describe("article generation", () => {
+  const articleHeaders = [
+    "id",
+    "category",
+    "target_age",
+    "title",
+    "note",
+    "image_url",
+    "completed",
+    "completed_at",
+    "next_action",
+    "progress",
+    "status",
+    "article_order",
+  ];
+  const articleSheetData = [
+    articleHeaders,
+    [2, "Health", 50, "運動系の趣味を作る", "", "https://lh3.example/2.jpg", false, "", "", "", "", 2],
+    [1, "Health", 40, "体重を痩せる", "メモです", "https://lh3.example/1.jpg", false, "", "", "", "in_progress", 1],
+    [3, "Something else", 70, "遺言書を作る", "ノートです", "https://lh3.example/3.jpg", true, "2023-10-26T15:00:00.000Z", "", "", "", 3],
+    [4, "謎カテゴリ", 50, "行き先不明", "", "", false, "", "", "", "", ""],
+  ];
+
+  const post = (body) =>
+    doPost({ postData: { contents: JSON.stringify(body) } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setMockSheetData(articleSheetData);
+    scriptProperties.ARTICLE_DOC_ID = "article-doc-1";
+    const originalFetch = mockUrlFetchApp.fetch.getMockImplementation();
+    mockUrlFetchApp.fetch.mockImplementation((url) => {
+      if (String(url).includes("lh3.example")) {
+        return { getBlob: () => ({ image: url }) };
+      }
+      return originalFetch(url);
+    });
+  });
+
+  it("builds the article blocks in sheet order with status and completion marks", () => {
+    const items = convertSheetDataToObjects(articleSheetData);
+    const blocks = buildArticleBlocks(items, new Date("2026-11-15T00:00:00.000Z"));
+    const summary = blocks.map((block) =>
+      block.kind === "image" ? ["image", block.url] : [block.kind, block.text]
+    );
+    expect(summary).toEqual([
+      ["paragraph", "[[タグ：暮らし]]"],
+      ["title", "死ぬまでにやりたいことリスト"],
+      ["paragraph", "「死ぬまでにやりたいこと」を4個、書き出しています。目標の年齢はあくまで目安で、順番に縛られず、できそうなものから叶えていく前提です。"],
+      ["paragraph", "これまでは専用ページでタイル状に並べて公開していましたが、これからはブログ記事として公開することにしました。達成したり、新しく思いついたりしたときに、この記事を更新していきます。"],
+      ["paragraph", "2026年11月現在、達成できたのは4個のうち1つだけです。"],
+      ["heading", "Health"],
+      ["paragraph", "[[目次]]"],
+      ["itemTitle", "体重を痩せる"],
+      ["paragraph", "目標：40歳台／仕掛り中"],
+      ["paragraph", "[[アンカーリンク]]"],
+      ["image", "https://lh3.example/1.jpg"],
+      ["paragraph", "メモです"],
+      ["itemTitle", "運動系の趣味を作る"],
+      ["paragraph", "目標：50歳台"],
+      ["paragraph", "[[アンカーリンク]]"],
+      ["image", "https://lh3.example/2.jpg"],
+      ["heading", "Relationships"],
+      ["paragraph", "[[目次]]"],
+      ["heading", "Finance"],
+      ["paragraph", "[[目次]]"],
+      ["heading", "Career"],
+      ["paragraph", "[[目次]]"],
+      ["heading", "Interests"],
+      ["paragraph", "[[目次]]"],
+      ["heading", "Something else"],
+      ["paragraph", "[[目次]]"],
+      ["itemTitle", "行き先不明"],
+      ["paragraph", "目標：50歳台"],
+      ["paragraph", "[[アンカーリンク]]"],
+      ["heading", "達成したもの"],
+      ["paragraph", "[[目次]]"],
+      ["itemTitle", "遺言書を作る"],
+      ["paragraph", "目標：70歳台／達成済み（2023年10月27日）"],
+      ["paragraph", "[[アンカーリンク]]"],
+      ["paragraph", "[[画像グレーアウト]]"],
+      ["image", "https://lh3.example/3.jpg"],
+      ["paragraph", "ノートです"],
+      ["paragraph", "どれか一つでも多く叶えられるよう、ときどき見返していきます。"],
+    ]);
+  });
+
+  it("writes the generated blocks into the document", () => {
+    const result = generateArticle();
+    expect(result.ok).toBe(true);
+    expect(result.items).toBe(4);
+
+    const paragraphs = mockDoc.body.paragraphs;
+    const title = paragraphs.find((p) => p.text === "死ぬまでにやりたいことリスト");
+    expect(title.heading).toBe("TITLE");
+    const heading = paragraphs.find((p) => p.text === "Health");
+    expect(heading.heading).toBe("HEADING_2");
+    const itemTitle = paragraphs.find((p) => p.text === "体重を痩せる");
+    expect(itemTitle.bold).toBe(true);
+    const meta = paragraphs.find((p) => p.text === "目標：40歳台／仕掛り中");
+    expect(meta.bold).toBe(false);
+    const imageParagraph = paragraphs.find((p) => p.images.length > 0);
+    expect(imageParagraph.images[0].width).toBe(468);
+    expect(imageParagraph.images[0].height).toBe(468);
+    expect(mockDoc.saveAndClose).toHaveBeenCalled();
+    expect(scriptProperties.ARTICLE_SYNC_HASH).toBeTruthy();
+  });
+
+  it("throws when ARTICLE_DOC_ID is not set", () => {
+    delete scriptProperties.ARTICLE_DOC_ID;
+    expect(() => generateArticle()).toThrow("ARTICLE_DOC_ID");
+    expect(syncArticleFromSheet()).toEqual({
+      ok: false,
+      reason: "ARTICLE_DOC_ID script property is not set",
+    });
+  });
+
+  it("regenerates only when the sheet data changed", () => {
+    expect(syncArticleFromSheet()).toEqual({ ok: true, regenerated: true });
+    expect(syncArticleFromSheet()).toEqual({ ok: true, regenerated: false });
+  });
+
+  it("runs generation through doPost actions and installs the hourly trigger once", () => {
+    const generated = post({ action: "generate_article", id_token: "valid-token" });
+    expect(JSON.parse(generated.content).ok).toBe(true);
+
+    const first = post({ action: "sync_article", id_token: "valid-token" });
+    expect(JSON.parse(first.content)).toEqual({
+      ok: true,
+      regenerated: false,
+      triggerInstalled: true,
+    });
+
+    const second = post({ action: "sync_article", id_token: "valid-token" });
+    expect(JSON.parse(second.content)).toEqual({
+      ok: true,
+      regenerated: false,
+      triggerInstalled: false,
+    });
+  });
+
+  it("returns a 500 error from doPost when ARTICLE_DOC_ID is missing", () => {
+    delete scriptProperties.ARTICLE_DOC_ID;
+    const result = post({ action: "generate_article", id_token: "valid-token" });
+    expect(JSON.parse(result.content).error.code).toBe(500);
   });
 });
