@@ -236,7 +236,14 @@ const makeMockDoc = () => {
 };
 
 const mockDocumentApp = {
-  ParagraphHeading: { TITLE: "TITLE", HEADING_2: "HEADING_2", NORMAL: "NORMAL" },
+  // Mirrors the real Apps Script enum member names (HEADING2, not HEADING_2).
+  ParagraphHeading: {
+    NORMAL: "NORMAL",
+    HEADING1: "HEADING1",
+    HEADING2: "HEADING2",
+    TITLE: "TITLE",
+    SUBTITLE: "SUBTITLE",
+  },
   openById: vi.fn(() => mockDoc),
 };
 
@@ -1095,7 +1102,7 @@ describe("article generation", () => {
     const title = paragraphs.find((p) => p.text === "死ぬまでにやりたいことリスト");
     expect(title.heading).toBe("TITLE");
     const heading = paragraphs.find((p) => p.text === "Health");
-    expect(heading.heading).toBe("HEADING_2");
+    expect(heading.heading).toBe("HEADING2");
     const itemTitle = paragraphs.find((p) => p.text === "体重を痩せる");
     expect(itemTitle.bold).toBe(true);
     const meta = paragraphs.find((p) => p.text === "目標：40歳台／仕掛り中");
