@@ -188,6 +188,13 @@ const makeMockParagraph = (text) => ({
   heading: null,
   bold: null,
   images: [],
+  getType: vi.fn(() => "PARAGRAPH"),
+  asParagraph: vi.fn(function () {
+    return this;
+  }),
+  setText: vi.fn(function (value) {
+    this.text = value;
+  }),
   setHeading: vi.fn(function (heading) {
     this.heading = heading;
     return this;
@@ -224,7 +231,14 @@ const makeMockDoc = () => {
   const body = {
     paragraphs: [],
     clear: vi.fn(function () {
-      this.paragraphs = [];
+      // The real Body.clear() leaves one empty paragraph behind.
+      this.paragraphs = [makeMockParagraph("")];
+    }),
+    getNumChildren: vi.fn(function () {
+      return this.paragraphs.length;
+    }),
+    getChild: vi.fn(function (index) {
+      return this.paragraphs[index];
     }),
     appendParagraph: vi.fn(function (text) {
       // The real Body.appendParagraph requires a String (or Paragraph)
@@ -243,6 +257,7 @@ const makeMockDoc = () => {
 };
 
 const mockDocumentApp = {
+  ElementType: { PARAGRAPH: "PARAGRAPH" },
   // Mirrors the real Apps Script enum member names (HEADING2, not HEADING_2).
   ParagraphHeading: {
     NORMAL: "NORMAL",
@@ -1106,6 +1121,12 @@ describe("article generation", () => {
     expect(result.items).toBe(4);
 
     const paragraphs = mockDoc.body.paragraphs;
+    // The empty paragraph left by clear() is reused for the first block,
+    // so the document does not start with a blank paragraph.
+    expect(paragraphs[0].text).toBe("[[タグ：暮らし]]");
+    expect(
+      paragraphs.every((p) => p.text !== "" || p.images.length > 0)
+    ).toBe(true);
     const title = paragraphs.find((p) => p.text === "死ぬまでにやりたいことリスト");
     expect(title.heading).toBe("TITLE");
     const heading = paragraphs.find((p) => p.text === "Health");
