@@ -750,7 +750,7 @@ const writeArticleBlocks_ = (docId, blocks) => {
   blocks.forEach((block) => {
     if (block.kind === "image") {
       const blob = UrlFetchApp.fetch(block.url).getBlob();
-      const paragraph = body.appendParagraph();
+      const paragraph = body.appendParagraph("");
       const image = paragraph.appendInlineImage(blob);
       image.setWidth(ARTICLE_IMAGE_SIZE_PT);
       image.setHeight(ARTICLE_IMAGE_SIZE_PT);
