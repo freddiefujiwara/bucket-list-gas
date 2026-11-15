@@ -760,7 +760,7 @@ const writeArticleBlocks_ = (docId, blocks) => {
     if (block.kind === "title") {
       paragraph.setHeading(DocumentApp.ParagraphHeading.TITLE);
     } else if (block.kind === "heading") {
-      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING_2);
+      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
     } else {
       paragraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
     }
