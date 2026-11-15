@@ -826,6 +826,40 @@ describe("doPost", () => {
     const row = mockSheet.data[1];
     expect(row[mockSheet.data[0].indexOf("progress")]).toBe("半分進んだ");
   });
+
+  it("updates the status field of an existing item", () => {
+    const result = post({
+      action: "update_item",
+      id_token: "valid-token",
+      item: { id: 1, status: "in_progress" },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    const row = mockSheet.data[1];
+    expect(mockSheet.data[0]).toContain("status");
+    expect(row[mockSheet.data[0].indexOf("status")]).toBe("in_progress");
+  });
+
+  it("stores an unknown status value as an empty string", () => {
+    const result = post({
+      action: "update_item",
+      id_token: "valid-token",
+      item: { id: 1, status: "doing" },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 1 });
+    const row = mockSheet.data[1];
+    expect(row[mockSheet.data[0].indexOf("status")]).toBe("");
+  });
+
+  it("adds an item with a status", () => {
+    const result = post({
+      action: "add_item",
+      id_token: "valid-token",
+      item: { title: "進行中の項目", status: "in_progress" },
+    });
+    expect(JSON.parse(result.content)).toEqual({ ok: true, id: 3 });
+    const row = mockSheet.data[3];
+    expect(row[mockSheet.data[0].indexOf("status")]).toBe("in_progress");
+  });
 });
 
 describe("convertSheetDataToObjects management fields", () => {
@@ -837,5 +871,14 @@ describe("convertSheetDataToObjects management fields", () => {
     const result = convertSheetDataToObjects(data);
     expect(result[0].next_action).toBe("予約する");
     expect(result[0].progress).toBe("途中");
+  });
+
+  it("parses status as a trimmed string", () => {
+    const data = [
+      [...testData.headers, "status"],
+      [1, "C", 50, "T", "N", "", false, "", "x", "  in_progress  "],
+    ];
+    const result = convertSheetDataToObjects(data);
+    expect(result[0].status).toBe("in_progress");
   });
 });
