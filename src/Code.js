@@ -91,6 +91,7 @@ const headerToParserMap = {
   next_action: parse.string,
   progress: parse.string,
   status: parse.string,
+  article_order: parse.id,
   completed_at: parse.completed_at,
 };
 
@@ -622,6 +623,212 @@ const deleteItem_ = (sheet, rawId) => {
   return { ok: true, id };
 };
 
+// --- Article generation ---
+//
+// The public blog article is generated from the list sheet, so item edits
+// (including the status field) reach the article without anyone editing
+// the document by hand. generateArticle() rebuilds the whole document;
+// syncArticleFromSheet() runs hourly from a time-based trigger and
+// regenerates only when the sheet data changed. The target document id
+// lives in the ARTICLE_DOC_ID script property.
+
+const ARTICLE_DOC_ID_PROPERTY = "ARTICLE_DOC_ID";
+const ARTICLE_SYNC_HASH_PROPERTY = "ARTICLE_SYNC_HASH";
+const ARTICLE_CATEGORY_ORDER = [
+  "Health",
+  "Relationships",
+  "Finance",
+  "Career",
+  "Interests",
+  "Something else",
+];
+const ARTICLE_COMPLETED_HEADING = "達成したもの";
+const ARTICLE_IMAGE_SIZE_PT = 468;
+
+const formatArticleDate_ = (iso) =>
+  Utilities.formatDate(new Date(iso), "Asia/Tokyo", "yyyy年M月d日");
+
+const articleMetaText_ = (item) => {
+  const parts = [];
+  if (item.target_age) {
+    parts.push(`目標：${item.target_age}歳台`);
+  }
+  if (item.completed) {
+    parts.push(
+      item.completed_at
+        ? `達成済み（${formatArticleDate_(item.completed_at)}）`
+        : "達成済み"
+    );
+  } else if (item.status === "in_progress") {
+    parts.push("仕掛り中");
+  }
+  return parts.join("／");
+};
+
+const articleItemComparator_ = (a, b) => {
+  const orderA =
+    a.article_order == null ? Number.MAX_SAFE_INTEGER : a.article_order;
+  const orderB =
+    b.article_order == null ? Number.MAX_SAFE_INTEGER : b.article_order;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  return (a.id || 0) - (b.id || 0);
+};
+
+export function buildArticleBlocks(items, now) {
+  const blocks = [];
+  const push = (kind, text) => blocks.push({ kind, text });
+  const total = items.length;
+  const completedItems = items
+    .filter((item) => item.completed)
+    .sort(articleItemComparator_);
+
+  push("paragraph", "[[タグ：暮らし]]");
+  push("title", "死ぬまでにやりたいことリスト");
+  push(
+    "paragraph",
+    `「死ぬまでにやりたいこと」を${total}個、書き出しています。目標の年齢はあくまで目安で、順番に縛られず、できそうなものから叶えていく前提です。`
+  );
+  push(
+    "paragraph",
+    "これまでは専用ページでタイル状に並べて公開していましたが、これからはブログ記事として公開することにしました。達成したり、新しく思いついたりしたときに、この記事を更新していきます。"
+  );
+  push(
+    "paragraph",
+    `${Utilities.formatDate(now, "Asia/Tokyo", "yyyy年M月")}現在、達成できたのは${total}個のうち${completedItems.length}つだけです。`
+  );
+
+  const pushItem = (item) => {
+    push("itemTitle", item.title);
+    const meta = articleMetaText_(item);
+    if (meta) {
+      push("paragraph", meta);
+    }
+    push("paragraph", "[[アンカーリンク]]");
+    if (item.completed) {
+      push("paragraph", "[[画像グレーアウト]]");
+    }
+    if (item.image_url) {
+      blocks.push({ kind: "image", url: item.image_url });
+    }
+    if (item.note) {
+      push("paragraph", item.note);
+    }
+  };
+
+  ARTICLE_CATEGORY_ORDER.forEach((category) => {
+    push("heading", category);
+    push("paragraph", "[[目次]]");
+    items
+      .filter(
+        (item) =>
+          !item.completed &&
+          (item.category === category ||
+            (category === "Something else" &&
+              !ARTICLE_CATEGORY_ORDER.includes(item.category)))
+      )
+      .sort(articleItemComparator_)
+      .forEach(pushItem);
+  });
+
+  push("heading", ARTICLE_COMPLETED_HEADING);
+  push("paragraph", "[[目次]]");
+  completedItems.forEach(pushItem);
+
+  push(
+    "paragraph",
+    "どれか一つでも多く叶えられるよう、ときどき見返していきます。"
+  );
+  return blocks;
+}
+
+const writeArticleBlocks_ = (docId, blocks) => {
+  const doc = DocumentApp.openById(docId);
+  const body = doc.getBody();
+  body.clear();
+  blocks.forEach((block) => {
+    if (block.kind === "image") {
+      const blob = UrlFetchApp.fetch(block.url).getBlob();
+      const paragraph = body.appendParagraph();
+      const image = paragraph.appendInlineImage(blob);
+      image.setWidth(ARTICLE_IMAGE_SIZE_PT);
+      image.setHeight(ARTICLE_IMAGE_SIZE_PT);
+      return;
+    }
+    const paragraph = body.appendParagraph(block.text);
+    if (block.kind === "title") {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.TITLE);
+    } else if (block.kind === "heading") {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING_2);
+    } else {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+    }
+    paragraph.editAsText().setBold(block.kind === "itemTitle");
+  });
+  doc.saveAndClose();
+};
+
+const articleSheetHash_ = (values) =>
+  Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    JSON.stringify(values)
+  )
+    .map((byte) => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, "0"))
+    .join("");
+
+export function generateArticle() {
+  const properties = PropertiesService.getScriptProperties();
+  const docId = properties.getProperty(ARTICLE_DOC_ID_PROPERTY);
+  if (!docId) {
+    throw new Error("ARTICLE_DOC_ID script property is not set");
+  }
+  const sheet = getListSheet_();
+  if (!sheet) {
+    throw new Error("Sheet 'list' not found.");
+  }
+  const values = readListValues_(sheet);
+  const items = convertSheetDataToObjects(values);
+  const blocks = buildArticleBlocks(items, new Date());
+  writeArticleBlocks_(docId, blocks);
+  properties.setProperty(ARTICLE_SYNC_HASH_PROPERTY, articleSheetHash_(values));
+  return { ok: true, items: items.length, blocks: blocks.length };
+}
+
+export function syncArticleFromSheet() {
+  const properties = PropertiesService.getScriptProperties();
+  if (!properties.getProperty(ARTICLE_DOC_ID_PROPERTY)) {
+    return { ok: false, reason: "ARTICLE_DOC_ID script property is not set" };
+  }
+  const sheet = getListSheet_();
+  if (!sheet) {
+    return { ok: false, reason: "Sheet 'list' not found." };
+  }
+  const values = readListValues_(sheet);
+  if (
+    properties.getProperty(ARTICLE_SYNC_HASH_PROPERTY) ===
+    articleSheetHash_(values)
+  ) {
+    return { ok: true, regenerated: false };
+  }
+  generateArticle();
+  return { ok: true, regenerated: true };
+}
+
+const ensureArticleSyncTrigger_ = () => {
+  const exists = ScriptApp.getProjectTriggers().some(
+    (trigger) => trigger.getHandlerFunction() === "syncArticleFromSheet"
+  );
+  if (exists) {
+    return false;
+  }
+  ScriptApp.newTrigger("syncArticleFromSheet")
+    .timeBased()
+    .everyHours(1)
+    .create();
+  return true;
+};
+
 /**
  * Handles HTTP GET requests.
  * @param {Object} e - The event parameter containing request details.
@@ -732,6 +939,21 @@ export function doPost(e) {
     return result
       ? createJsonResponse(result)
       : createErrorResponse("item not found", 404);
+  }
+  if (body.action === "generate_article" || body.action === "sync_article") {
+    try {
+      if (body.action === "generate_article") {
+        return createJsonResponse(generateArticle());
+      }
+      const triggerInstalled = ensureArticleSyncTrigger_();
+      const result = syncArticleFromSheet();
+      return createJsonResponse({ ...result, triggerInstalled });
+    } catch (error) {
+      return createErrorResponse(
+        error.message || "article generation failed",
+        500
+      );
+    }
   }
   return createErrorResponse("unknown action", 400);
 }
