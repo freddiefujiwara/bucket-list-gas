@@ -747,6 +747,12 @@ const writeArticleBlocks_ = (docId, blocks) => {
   const doc = DocumentApp.openById(docId);
   const body = doc.getBody();
   body.clear();
+  // body.clear() always leaves one empty paragraph behind; reuse it for
+  // the first text block so the document does not start with a blank line.
+  const firstChild = body.getNumChildren() > 0 ? body.getChild(0) : null;
+  let reuseFirstParagraph = Boolean(
+    firstChild && firstChild.getType() === DocumentApp.ElementType.PARAGRAPH
+  );
   blocks.forEach((block) => {
     if (block.kind === "image") {
       const blob = UrlFetchApp.fetch(block.url).getBlob();
@@ -756,7 +762,14 @@ const writeArticleBlocks_ = (docId, blocks) => {
       image.setHeight(ARTICLE_IMAGE_SIZE_PT);
       return;
     }
-    const paragraph = body.appendParagraph(block.text);
+    let paragraph;
+    if (reuseFirstParagraph) {
+      paragraph = firstChild.asParagraph();
+      paragraph.setText(block.text);
+      reuseFirstParagraph = false;
+    } else {
+      paragraph = body.appendParagraph(block.text);
+    }
     if (block.kind === "title") {
       paragraph.setHeading(DocumentApp.ParagraphHeading.TITLE);
     } else if (block.kind === "heading") {
