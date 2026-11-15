@@ -90,6 +90,7 @@ const headerToParserMap = {
   note: parse.string,
   next_action: parse.string,
   progress: parse.string,
+  status: parse.string,
   completed_at: parse.completed_at,
 };
 
@@ -474,7 +475,7 @@ const normalizedHeadersOf_ = (values) =>
 
 // Management columns are appended automatically on first write so the
 // production sheet does not need a manual schema change beforehand.
-const MANAGEMENT_HEADERS = ["next_action", "progress"];
+const MANAGEMENT_HEADERS = ["next_action", "progress", "status"];
 
 const ensureManagementHeaders_ = (sheet, values) => {
   const headers = normalizedHeadersOf_(values);
@@ -508,6 +509,7 @@ const EDITABLE_FIELDS = [
   "image_url",
   "next_action",
   "progress",
+  "status",
 ];
 
 const hasField_ = (item, field) =>
@@ -517,6 +519,11 @@ const sanitizeFieldValue_ = (field, value) => {
   if (field === "target_age") {
     const age = parseInt(value, 10);
     return isNaN(age) ? "" : age;
+  }
+  if (field === "status") {
+    // The only meaningful status is "in_progress" (仕掛り中); anything
+    // else is stored as an empty string (未着手).
+    return safeTrim(value) === "in_progress" ? "in_progress" : "";
   }
   return safeTrim(value);
 };
