@@ -170,21 +170,6 @@ function createJsonResponse(data) {
   );
 }
 
-/**
- * Validates a JSONP callback function name.
- * @param {string} callback - The callback name to validate.
- * @returns {boolean} True if the callback name is valid, false otherwise.
- */
-function isValidCallback(callback) {
-  if (!callback || typeof callback !== "string") {
-    return false;
-  }
-  // A stricter regex to ensure it's a valid JavaScript function name/path.
-  return /^[A-Za-z_$][0-9A-Za-z_$]*(\.[A-Za-z_$][0-9A-Za-z_$]*)*$/.test(
-    callback
-  );
-}
-
 // --- Script properties & environment separation ---
 // When the SPREADSHEET_ID script property is set, it wins over the built-in
 // production ID above, so a standalone staging project can serve a dummy
@@ -842,7 +827,7 @@ const ensureArticleSyncTrigger_ = () => {
 /**
  * Handles HTTP GET requests.
  * @param {Object} e - The event parameter containing request details.
- * @returns {GoogleAppsScript.Content.TextOutput} The JSON or JSONP output.
+ * @returns {GoogleAppsScript.Content.TextOutput} The JSON output.
  */
 export function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -889,15 +874,6 @@ export function doGet(e) {
   }
 
   const result = convertSheetDataToObjects(readListValues_(list));
-  // Handle cases where `e` is undefined (e.g., direct execution from editor).
-  const callback = params.callback;
-
-  if (isValidCallback(callback)) {
-    // Valid JSONP request
-    return ContentService.createTextOutput(
-      `${callback}(${JSON.stringify(result)});`
-    ).setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
   return createJsonResponse(result);
 }
 
