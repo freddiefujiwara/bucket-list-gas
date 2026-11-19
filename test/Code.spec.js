@@ -330,33 +330,13 @@ describe("doGet", () => {
     setMockSheetData(testData.normalSheetData);
   });
 
-  it("should return JSON with TEXT MIME type when no callback is provided", () => {
+  it("should return JSON with TEXT MIME type", () => {
     const e = { parameter: { id_token: "valid-token" } };
     const result = doGet(e);
     const parsedResult = JSON.parse(result.content);
 
     expect(parsedResult).toHaveLength(2);
     expect(parsedResult[0].id).toBe(1);
-    expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
-  });
-
-  it("should return JSONP with a valid callback", () => {
-    const callbackName = "myCallback";
-    const e = { parameter: { callback: callbackName, id_token: "valid-token" } };
-    const result = doGet(e);
-
-    expect(result.content.startsWith(`${callbackName}(`)).toBe(true);
-    expect(result.content.endsWith(");")).toBe(true);
-    expect(result.mimeType).toBe(mockContentService.MimeType.JAVASCRIPT);
-  });
-
-  it("should fall back to JSON with an invalid callback", () => {
-    const invalidCallback = "invalid-callback;";
-    const e = { parameter: { callback: invalidCallback, id_token: "valid-token" } };
-    const result = doGet(e);
-    const parsedResult = JSON.parse(result.content);
-
-    expect(parsedResult).toHaveLength(2);
     expect(result.mimeType).toBe(mockContentService.MimeType.TEXT);
   });
 

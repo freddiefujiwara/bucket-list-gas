@@ -9,7 +9,6 @@ This API is built with Google Apps Script and uses a Google Sheet as its databas
 - **Get Bucket List Data**: Fetches all items from the bucket list stored in a Google Sheet.
 - **Data Normalization**: Cleans up and formats the data. For example, it trims text, validates URLs, and sets default values.
 - **Dynamic Age Calculation**: Automatically calculates and normalizes the `target_age` field based on a specific birth date.
-- **JSONP Support**: Includes a `callback` parameter for JSONP requests to work around cross-domain issues if needed.
 - **Authentication**: All requests require a Google ID token (owner) or a temporary share token. Share sessions are issued/revoked by the owner (GET `action=issue_share` / `action=revoke_share` with an ID token) and grant owner-equivalent access for 30 days.
 - **Management Writes**: POST actions `update_item`, `add_item`, and `delete_item` edit the sheet. The management columns `next_action`, `progress` and `status` are added to the sheet automatically on first write. `status` holds `in_progress` for items that are underway and is empty otherwise.
 - **Article Generation**: The public blog article is generated from the sheet. POST action `generate_article` rebuilds the article document (id from the `ARTICLE_DOC_ID` script property) immediately; POST action `sync_article` installs the hourly time-based trigger (once) and regenerates only when the sheet data changed. Items are laid out by category in `article_order` sequence; completed items move to the 達成したもの section, and `in_progress` items get a 仕掛り中 mark in their goal line.
@@ -144,7 +143,6 @@ API.
 
 - **Spec file**: `openapi.yaml`
 - **Server URL**: `https://script.google.com/macros/s/<deployment-id>/exec`
-- **JSONP support**: Add the optional `callback` query parameter when needed.
 
 ## Relationship with the Frontend
 

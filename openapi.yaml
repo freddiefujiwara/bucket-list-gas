@@ -4,7 +4,7 @@ info:
   version: "1.0.0"
   description: |
     A Google Apps Script-backed API that serves bucket list items from a Google
-    Sheet. Responses are returned as JSON text, with optional JSONP support.
+    Sheet. Responses are returned as JSON text.
     All endpoints require authentication: a Google ID token (owner) or a
     temporary share token (owner-equivalent, 30 days), issued via the
     issue_share action.
@@ -16,16 +16,8 @@ paths:
     get:
       summary: List bucket list items
       description: |
-        Returns all bucket list items from the "list" sheet. If a `callback`
-        query parameter is provided and is a valid JavaScript function name,
-        the response is wrapped as JSONP.
+        Returns all bucket list items from the "list" sheet.
       parameters:
-        - name: callback
-          in: query
-          required: false
-          description: JSONP callback function name.
-          schema:
-            type: string
         - name: id_token
           in: query
           required: false
