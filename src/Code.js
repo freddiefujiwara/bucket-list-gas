@@ -111,7 +111,7 @@ export function convertSheetDataToObjects(data) {
   if (!headerRow) return [];
 
   // Normalize headers to be robust against variations.
-  const normalizedHeaders = headerRow.map((h) => safeTrim(h).toLowerCase());
+  const normalizedHeaders = normalizedHeadersOf_(data);
 
   const now = new Date();
   const nowISO = now.toISOString();
@@ -299,11 +299,14 @@ const getSessionSheet_ = (name) => {
   return sheet;
 };
 
-const hashShareToken_ = (token) =>
-  Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token))
-    .map((byte) => ((byte % 256) + 256) % 256)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
+// SHA-256 of a text as a lowercase hex string. Digest bytes are signed,
+// so negative bytes are shifted back into the 0-255 range first.
+const sha256Hex_ = (text) =>
+  Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text)
+    .map((byte) => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, "0"))
     .join("");
+
+const hashShareToken_ = (token) => sha256Hex_(String(token));
 
 const readSessionRows_ = (name) => {
   const sheet = getSessionSheet_(name);
@@ -335,9 +338,6 @@ const revokeActiveSessions_ = (name, nowIso) => {
   });
 };
 
-const revokeActiveShareSessions_ = (nowIso) =>
-  revokeActiveSessions_(SHARE_SHEET_NAME, nowIso);
-
 const issueSession_ = (name, tokenKey, { revokePrevious = true } = {}) => {
   const now = new Date();
   const nowIso = now.toISOString();
@@ -358,7 +358,7 @@ const issueSession_ = (name, tokenKey, { revokePrevious = true } = {}) => {
 const issueShareSession_ = () => issueSession_(SHARE_SHEET_NAME, "share_token");
 
 const revokeShareSession_ = () => {
-  revokeActiveShareSessions_(new Date().toISOString());
+  revokeActiveSessions_(SHARE_SHEET_NAME, new Date().toISOString());
   return { revoked: true };
 };
 
@@ -529,6 +529,31 @@ const sanitizeFieldValue_ = (field, value) => {
   return safeTrim(value);
 };
 
+// Writes the completed flag and keeps completed_at consistent with it:
+// cleared while the item is not completed, stamped when it is newly
+// completed, and overwritten only by an explicit completed_at value.
+const applyCompletion_ = (setCell, values, rowIndex, headers, item) => {
+  if (!hasField_(item, "completed") && !hasField_(item, "completed_at")) {
+    return;
+  }
+  const completedColumn = headers.indexOf("completed");
+  const existingCompleted =
+    completedColumn >= 0 ? parse.completed(values[rowIndex][completedColumn]) : false;
+  const completed = hasField_(item, "completed")
+    ? parse.completed(item.completed)
+    : existingCompleted;
+  if (hasField_(item, "completed")) {
+    setCell("completed", completed);
+  }
+  if (!completed) {
+    setCell("completed_at", "");
+  } else if (hasField_(item, "completed_at")) {
+    setCell("completed_at", parse.completed_at(item.completed_at) || new Date().toISOString());
+  } else if (hasField_(item, "completed") && !existingCompleted) {
+    setCell("completed_at", new Date().toISOString());
+  }
+};
+
 const updateItem_ = (sheet, item) => {
   const values = readListValues_(sheet);
   const headers = ensureManagementHeaders_(sheet, values);
@@ -550,26 +575,7 @@ const updateItem_ = (sheet, item) => {
       setCell(field, sanitizeFieldValue_(field, item[field]));
     }
   });
-
-  if (hasField_(item, "completed") || hasField_(item, "completed_at")) {
-    const completedColumn = headers.indexOf("completed");
-    const existingCompleted =
-      completedColumn >= 0 ? parse.completed(values[rowIndex][completedColumn]) : false;
-    const completed = hasField_(item, "completed")
-      ? parse.completed(item.completed)
-      : existingCompleted;
-    if (hasField_(item, "completed")) {
-      setCell("completed", completed);
-    }
-    if (!completed) {
-      setCell("completed_at", "");
-    } else if (hasField_(item, "completed_at")) {
-      const parsed = parse.completed_at(item.completed_at);
-      setCell("completed_at", parsed || new Date().toISOString());
-    } else if (hasField_(item, "completed") && !existingCompleted) {
-      setCell("completed_at", new Date().toISOString());
-    }
-  }
+  applyCompletion_(setCell, values, rowIndex, headers, item);
   return { ok: true, id };
 };
 
@@ -665,6 +671,11 @@ const articleMetaText_ = (item) => {
   return parts.join("／");
 };
 
+// Items whose category is not in the fixed order fall into the last
+// section, so an unknown category never drops an item from the article.
+const articleCategoryOf_ = (item) =>
+  ARTICLE_CATEGORY_ORDER.includes(item.category) ? item.category : "Something else";
+
 const articleItemComparator_ = (a, b) => {
   const orderA =
     a.article_order == null ? Number.MAX_SAFE_INTEGER : a.article_order;
@@ -721,13 +732,7 @@ export function buildArticleBlocks(items, now) {
     push("heading", category);
     push("paragraph", "[[目次]]");
     items
-      .filter(
-        (item) =>
-          !item.completed &&
-          (item.category === category ||
-            (category === "Something else" &&
-              !ARTICLE_CATEGORY_ORDER.includes(item.category)))
-      )
+      .filter((item) => !item.completed && articleCategoryOf_(item) === category)
       .sort(articleItemComparator_)
       .forEach(pushItem);
   });
@@ -753,6 +758,10 @@ const writeArticleBlocks_ = (docId, blocks) => {
   let reuseFirstParagraph = Boolean(
     firstChild && firstChild.getType() === DocumentApp.ElementType.PARAGRAPH
   );
+  const headings = {
+    title: DocumentApp.ParagraphHeading.TITLE,
+    heading: DocumentApp.ParagraphHeading.HEADING2,
+  };
   blocks.forEach((block) => {
     if (block.kind === "image") {
       const blob = UrlFetchApp.fetch(block.url).getBlob();
@@ -770,25 +779,13 @@ const writeArticleBlocks_ = (docId, blocks) => {
     } else {
       paragraph = body.appendParagraph(block.text);
     }
-    if (block.kind === "title") {
-      paragraph.setHeading(DocumentApp.ParagraphHeading.TITLE);
-    } else if (block.kind === "heading") {
-      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    } else {
-      paragraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
-    }
+    paragraph.setHeading(headings[block.kind] || DocumentApp.ParagraphHeading.NORMAL);
     paragraph.editAsText().setBold(block.kind === "itemTitle");
   });
   doc.saveAndClose();
 };
 
-const articleSheetHash_ = (values) =>
-  Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    JSON.stringify(values)
-  )
-    .map((byte) => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, "0"))
-    .join("");
+const articleSheetHash_ = (values) => sha256Hex_(JSON.stringify(values));
 
 export function generateArticle() {
   const properties = PropertiesService.getScriptProperties();
@@ -900,12 +897,8 @@ export function doGet(e) {
     return ContentService.createTextOutput(
       `${callback}(${JSON.stringify(result)});`
     ).setMimeType(ContentService.MimeType.JAVASCRIPT);
-  } else {
-    // Standard JSON response, using TEXT as JSON is not a standard MimeType.
-    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(
-      ContentService.MimeType.TEXT
-    );
   }
+  return createJsonResponse(result);
 }
 
 /**
