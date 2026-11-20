@@ -27,18 +27,53 @@ export function calculateAge(birthDate, nowDate) {
 }
 
 // Helper function to safely stringify and trim a value.
-const safeTrim = (v) => String(v ?? "").trim();
+// String() throws on objects whose toString is not callable (a shape
+// JSON.parse can produce, e.g. {"toString":[]}); those read as empty.
+const safeTrim = (v) => {
+  try {
+    return String(v ?? "").trim();
+  } catch {
+    return "";
+  }
+};
+
+// Parses a date string, or returns null. Date parsing rolls
+// non-existent calendar dates over to a different day (2026-02-30
+// becomes Mar 2) instead of failing, so a date-shaped string must
+// first prove its Y/M/D actually exists.
+const dateFromString_ = (text) => {
+  const datePart = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?=[T ]|$)/);
+  if (datePart) {
+    const probe = new Date(0);
+    probe.setUTCFullYear(+datePart[1], +datePart[2] - 1, +datePart[3]);
+    if (
+      probe.getUTCFullYear() !== +datePart[1] ||
+      probe.getUTCMonth() !== +datePart[2] - 1 ||
+      probe.getUTCDate() !== +datePart[3]
+    ) {
+      return null;
+    }
+  }
+  const date = new Date(text);
+  return isNaN(date.getTime()) ? null : date;
+};
 
 // --- Parsers for each data field ---
 
 const parse = {
   id: (v) => {
+    // Only numbers and numeric strings carry an id; anything else
+    // (arrays would otherwise coerce, e.g. [65] -> 65) is missing.
+    if (typeof v !== "number" && typeof v !== "string") {
+      return null;
+    }
     const id = parseInt(v, 10);
     return isNaN(id) ? null : id;
   },
 
   target_age: (v, { normalizedTargetAge }) => {
-    const ageValue = parseInt(v, 10);
+    const ageValue =
+      typeof v === "number" || typeof v === "string" ? parseInt(v, 10) : NaN;
     if (
       v == null ||
       isNaN(ageValue) ||
@@ -68,8 +103,8 @@ const parse = {
       return v.toISOString();
     }
     if (typeof v === "string" && v.trim()) {
-      const date = new Date(v.trim());
-      if (!isNaN(date.getTime())) {
+      const date = dateFromString_(v.trim());
+      if (date) {
         return date.toISOString();
       }
     }
@@ -121,8 +156,11 @@ export function convertSheetDataToObjects(data) {
   const context = { normalizedTargetAge };
 
   return rows.map((row) => {
+    // A deformed row (null, scalar) reads as an empty row instead of
+    // taking down the whole conversion.
+    const rowValues = Array.isArray(row) ? row : [];
     const obj = normalizedHeaders.reduce((acc, header, index) => {
-      const value = row[index];
+      const value = rowValues[index];
       const parser = headerToParserMap[header] || parse.default;
       acc[header] = parser(value, context);
       return acc;
@@ -457,7 +495,9 @@ const readListValues_ = (sheet) => {
 };
 
 const normalizedHeadersOf_ = (values) =>
-  (values[0] || []).map((h) => safeTrim(h).toLowerCase());
+  (Array.isArray(values[0]) ? values[0] : []).map((h) =>
+    safeTrim(h).toLowerCase()
+  );
 
 // Management columns are appended automatically on first write so the
 // production sheet does not need a manual schema change beforehand.
@@ -503,7 +543,10 @@ const hasField_ = (item, field) =>
 
 const sanitizeFieldValue_ = (field, value) => {
   if (field === "target_age") {
-    const age = parseInt(value, 10);
+    const age =
+      typeof value === "number" || typeof value === "string"
+        ? parseInt(value, 10)
+        : NaN;
     return isNaN(age) ? "" : age;
   }
   if (field === "status") {
@@ -636,8 +679,20 @@ const ARTICLE_CATEGORY_ORDER = [
 const ARTICLE_COMPLETED_HEADING = "達成したもの";
 const ARTICLE_IMAGE_SIZE_PT = 468;
 
-const formatArticleDate_ = (iso) =>
-  Utilities.formatDate(new Date(iso), "Asia/Tokyo", "yyyy年M月d日");
+const formatArticleDate_ = (iso) => {
+  // Only date strings and Date objects are formattable; anything else
+  // (or a string that does not name a real date) reads as "no date".
+  const date =
+    typeof iso === "string"
+      ? dateFromString_(iso)
+      : iso instanceof Date && !isNaN(iso.getTime())
+        ? iso
+        : null;
+  if (!date) {
+    return "";
+  }
+  return Utilities.formatDate(date, "Asia/Tokyo", "yyyy年M月d日");
+};
 
 const articleMetaText_ = (item) => {
   const parts = [];
@@ -645,11 +700,10 @@ const articleMetaText_ = (item) => {
     parts.push(`目標：${item.target_age}歳台`);
   }
   if (item.completed) {
-    parts.push(
-      item.completed_at
-        ? `達成済み（${formatArticleDate_(item.completed_at)}）`
-        : "達成済み"
-    );
+    const dateText = item.completed_at
+      ? formatArticleDate_(item.completed_at)
+      : "";
+    parts.push(dateText ? `達成済み（${dateText}）` : "達成済み");
   } else if (item.status === "in_progress") {
     parts.push("仕掛り中");
   }
@@ -673,10 +727,15 @@ const articleItemComparator_ = (a, b) => {
 };
 
 export function buildArticleBlocks(items, now) {
+  // Only real item objects take part; a deformed entry (null, scalar)
+  // or a non-array list degrades to "no items" instead of throwing.
+  const list = (Array.isArray(items) ? items : []).filter(
+    (item) => item && typeof item === "object"
+  );
   const blocks = [];
   const push = (kind, text) => blocks.push({ kind, text });
-  const total = items.length;
-  const completedItems = items
+  const total = list.length;
+  const completedItems = list
     .filter((item) => item.completed)
     .sort(articleItemComparator_);
 
@@ -716,7 +775,7 @@ export function buildArticleBlocks(items, now) {
   ARTICLE_CATEGORY_ORDER.forEach((category) => {
     push("heading", category);
     push("paragraph", "[[目次]]");
-    items
+    list
       .filter((item) => !item.completed && articleCategoryOf_(item) === category)
       .sort(articleItemComparator_)
       .forEach(pushItem);
